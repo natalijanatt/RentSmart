@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("PROGRAM_ID_PLACEHOLDER");
+declare_id!("B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX");
 
 /// RentSmart rental deposit escrow program.
 ///
@@ -22,12 +22,12 @@ pub mod rentsmart {
     /// Called by the backend authority when a contract is created (POST /contracts).
     ///
     /// # Arguments
-    /// * `contract_id`     - UUID string as [u8; 36], e.g. b"550e8400-e29b-41d4-a716-446655440000"
+    /// * `contract_id`     - UUID string as [u8; 32], e.g. b"550e8400-e29b-41d4-a716-446655440000"
     /// * `contract_hash`   - SHA-256 of the contract JSON (32 bytes)
     /// * `deposit_lamports`- Deposit amount in lamports (converted from EUR by the server)
     pub fn initialize(
         ctx: Context<Initialize>,
-        contract_id: [u8; 36],
+        contract_id: [u8; 32],
         contract_hash: [u8; 32],
         deposit_lamports: u64,
     ) -> Result<()> {
@@ -49,17 +49,19 @@ pub mod rentsmart {
     /// The server builds this transaction unsigned; the tenant signs it on their mobile device.
     /// Called after tenant accepts the contract (POST /contracts/:id/accept).
     pub fn lock_deposit(ctx: Context<LockDeposit>) -> Result<()> {
-        let agreement = &mut ctx.accounts.agreement;
         require!(
-            agreement.state == AgreementState::Created,
+            ctx.accounts.agreement.state == AgreementState::Created,
             RentSmartError::InvalidState
         );
 
+        let deposit_lamports = ctx.accounts.agreement.deposit_lamports;
+        let tenant_key = ctx.accounts.tenant.key();
+
         // Transfer deposit from tenant's wallet into the PDA
         let transfer_ix = anchor_lang::solana_program::system_instruction::transfer(
-            &ctx.accounts.tenant.key(),
+            &tenant_key,
             &ctx.accounts.agreement.key(),
-            agreement.deposit_lamports,
+            deposit_lamports,
         );
         anchor_lang::solana_program::program::invoke(
             &transfer_ix,
@@ -69,7 +71,8 @@ pub mod rentsmart {
             ],
         )?;
 
-        agreement.tenant = ctx.accounts.tenant.key();
+        let agreement = &mut ctx.accounts.agreement;
+        agreement.tenant = tenant_key;
         agreement.state = AgreementState::DepositLocked;
         Ok(())
     }
@@ -170,13 +173,13 @@ pub mod rentsmart {
 // ─── Accounts ────────────────────────────────────────────────────────────────
 
 #[derive(Accounts)]
-#[instruction(contract_id: [u8; 36])]
+#[instruction(contract_id: [u8; 32])]
 pub struct Initialize<'info> {
     #[account(
         init,
         payer = authority,
         space = RentalAgreement::SIZE,
-        seeds = [b"rental", &contract_id],
+        seeds = [b"rental", contract_id.as_ref()],
         bump
     )]
     pub agreement: Account<'info, RentalAgreement>,
@@ -195,7 +198,7 @@ pub struct Initialize<'info> {
 pub struct LockDeposit<'info> {
     #[account(
         mut,
-        seeds = [b"rental", &agreement.contract_id],
+        seeds = [b"rental", agreement.contract_id.as_ref()],
         bump = agreement.bump
     )]
     pub agreement: Account<'info, RentalAgreement>,
@@ -211,7 +214,7 @@ pub struct LockDeposit<'info> {
 pub struct RecordCheckin<'info> {
     #[account(
         mut,
-        seeds = [b"rental", &agreement.contract_id],
+        seeds = [b"rental", agreement.contract_id.as_ref()],
         bump = agreement.bump
     )]
     pub agreement: Account<'info, RentalAgreement>,
@@ -224,7 +227,7 @@ pub struct RecordCheckin<'info> {
 pub struct RecordCheckout<'info> {
     #[account(
         mut,
-        seeds = [b"rental", &agreement.contract_id],
+        seeds = [b"rental", agreement.contract_id.as_ref()],
         bump = agreement.bump
     )]
     pub agreement: Account<'info, RentalAgreement>,
@@ -237,7 +240,7 @@ pub struct RecordCheckout<'info> {
 pub struct ExecuteSettlement<'info> {
     #[account(
         mut,
-        seeds = [b"rental", &agreement.contract_id],
+        seeds = [b"rental", agreement.contract_id.as_ref()],
         bump = agreement.bump
     )]
     pub agreement: Account<'info, RentalAgreement>,
@@ -258,7 +261,7 @@ pub struct ExecuteSettlement<'info> {
 
 #[account]
 pub struct RentalAgreement {
-    pub contract_id: [u8; 36],       // UUID string bytes (exactly 36 ASCII chars)
+    pub contract_id: [u8; 32],       // UUID string bytes (exactly 36 ASCII chars)
     pub contract_hash: [u8; 32],     // SHA-256 of contract JSON
     pub deposit_lamports: u64,       // Total deposit locked in this PDA
     pub landlord: Pubkey,            // Landlord's Solana wallet
@@ -271,10 +274,10 @@ pub struct RentalAgreement {
 }
 
 impl RentalAgreement {
-    // discriminator(8) + contract_id(36) + contract_hash(32) + deposit_lamports(8)
+    // discriminator(8) + contract_id(32) + contract_hash(32) + deposit_lamports(8)
     // + landlord(32) + tenant(32) + state(1) + checkin_hash(32)
-    // + checkout_hash(32) + settlement_hash(32) + bump(1) + padding(10)
-    pub const SIZE: usize = 8 + 36 + 32 + 8 + 32 + 32 + 1 + 32 + 32 + 32 + 1 + 10;
+    // + checkout_hash(32) + settlement_hash(32) + bump(1) + padding(14)
+    pub const SIZE: usize = 8 + 32 + 32 + 8 + 32 + 32 + 1 + 32 + 32 + 32 + 1 + 14;
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
