@@ -16,7 +16,8 @@ const EnvSchema = z.object({
   FIREBASE_PRIVATE_KEY: z.string().optional(),
   FIREBASE_CLIENT_EMAIL: z.string().optional(),
   // Required only when MOCK_LLM=false
-  GEMINI_API_KEY: z.string().optional(),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().default('meta-llama/llama-3.2-11b-vision-instruct:free'),
 });
 
 const result = EnvSchema.safeParse(process.env);
