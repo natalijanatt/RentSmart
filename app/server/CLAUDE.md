@@ -1,151 +1,170 @@
 # CLAUDE.md — RentSmart Server
 
-## Šta je ovaj projekat
+## What this is
 
-Backend API za RentSmart — mobilnu aplikaciju za transparentno upravljanje depozitima pri iznajmljivanju stanova. Sistem koristi LLM analizu slika (Gemini Vision) za objektivnu procenu štete, deterministički rule engine za raspodelu depozita, i Solana blockchain za escrow i nepromenljiv zapis.
+Backend API for RentSmart — a mobile app for transparent rental deposit management. Express.js + TypeScript server serving a React Native (Expo) mobile app. MVP for a 5-day hackathon, team of 3.
 
-Ovo je MVP za hakaton (5 dana, 3 osobe). Backend je Express.js server (TypeScript) koji služi React Native (Expo) mobilnu aplikaciju.
+Core flow: landlord creates contract → tenant accepts via invite link → landlord photographs apartment (check-in) → tenant confirms → tenant photographs at move-out (check-out) → landlord confirms → LLM compares before/after images → rule engine calculates deposit split → settlement finalized.
 
 ## Tech stack
 
-- **Runtime:** Node.js + Express.js
-- **Jezik:** TypeScript (strict mode)
-- **Baza:** PostgreSQL na Supabase (direktni SQL upiti preko pg pool-a)
-- **Storage:** Supabase Storage (slike stana — check-in/check-out)
-- **Auth:** Firebase Admin SDK (phone + SMS OTP), sa mock fallback-om za development
-- **LLM:** Google Gemini 1.5 Pro Vision API (analiza slika po prostorijama)
-- **Blockchain:** Solana Devnet, Anchor framework, @coral-xyz/anchor klijent
-- **Deploy:** Railway (automatski iz GitHub-a)
+- **Runtime:** Node.js + Express.js (TypeScript strict mode)
+- **DB:** PostgreSQL on Supabase — direct SQL via pg Pool. NEVER use Supabase JS client for queries.
+- **Storage:** Supabase Storage — images only. Use @supabase/supabase-js for upload/download.
+- **Auth:** Firebase Admin SDK (phone + SMS OTP). Mock fallback for dev (MOCK_AUTH=true).
+- **LLM:** Google Gemini 1.5 Pro Vision (@google/generative-ai). Mock fallback (MOCK_LLM=true).
+- **Blockchain:** Solana Devnet, Anchor framework, @coral-xyz/anchor client.
+- **Validation:** Zod for all request bodies and env vars.
+- **Deploy:** Railway (auto-deploy from GitHub).
 
-## Struktura
+## Project structure
 
 ```
 src/
-├── index.ts                    # Express entry, middleware, route mounting
-├── types/
-│   ├── index.ts                # Svi domenski tipovi (Contract, Settlement, Finding...)
-│   └── express.d.ts            # Extend Express Request sa user property-jem
-├── middleware/
-│   ├── auth.ts                 # Firebase token verifikacija + mock auth
-│   ├── errorHandler.ts         # Centralni error handler + asyncHandler wrapper
-│   └── validate.ts             # Request body validacija
-├── routes/
-│   ├── auth.ts                 # POST /auth/verify, GET /auth/me
-│   ├── contracts.ts            # CRUD ugovora, invite, accept
-│   ├── inspections.ts          # Check-in/check-out: start, images, complete, approve, reject
-│   ├── analysis.ts             # LLM analiza, settlement, finalize
-│   └── audit.ts                # Audit trail timeline
-├── services/
-│   ├── contractManager.ts      # State machine tranzicije + CRUD
-│   ├── imageService.ts         # Upload/download slika iz Supabase Storage
-│   ├── llmService.ts           # Gemini Vision API pozivi + parsiranje + mock
-│   ├── ruleEngine.ts           # Deterministička raspodela depozita
-│   ├── auditTrail.ts           # Hash chain logger (SHA-256)
-│   ├── solana/
-│   │   ├── ISolanaService.ts   # Interfejs (kopija iz app/blockchain/client/src/interface.ts)
-│   │   ├── MockSolanaService.ts# Mock implementacija za development bez blockchain-a
-│   │   └── index.ts            # Factory: createSolanaService() → real ili mock
-│   └── inviteService.ts        # Generisanje invite kodova
-├── db/
-│   ├── client.ts               # Supabase klijent + pg Pool
-│   └── migrations/
-│       └── 001_initial.sql     # Kompletna šema (7 tabela)
-├── config/
-│   └── stateMachine.ts         # STATE_TRANSITIONS + TRANSITION_ACTORS mape
-└── utils/
-    ├── hash.ts                 # SHA-256 helperi
-    └── geo.ts                  # Haversine distance (GPS validacija)
-
-tsconfig.json
-package.json
-.env.example
+├── index.ts                    # Entry: import app, listen on PORT
+├── app.ts                      # Express setup: middleware chain, mount routers
+├── modules/
+│   ├── auth/                   # Firebase verify, user upsert
+│   ├── contracts/              # CRUD, state machine, invite codes
+│   ├── inspections/            # Check-in/out image upload, approval flow
+│   ├── analysis/               # LLM + rule engine + settlement
+│   ├── audit/                  # Hash chain event log
+│   └── blockchain/             # Solana Anchor client
+├── shared/
+│   ├── types/index.ts          # ALL types — single source of truth
+│   ├── types/express.d.ts      # Augment Request with user
+│   ├── middleware/auth.ts      # Firebase verify + mock
+│   ├── middleware/errorHandler.ts
+│   ├── middleware/validate.ts  # Zod middleware
+│   ├── db/client.ts            # pg Pool + Supabase client
+│   ├── db/migrations/001_initial.sql
+│   └── utils/                  # hash, geo, errors
+└── config/env.ts               # Zod-validated env vars
 ```
 
-## Pokretanje
+Each module has: `{name}.routes.ts`, `{name}.service.ts`, `{name}.schema.ts`. Some have additional service files (e.g., `llmService.ts`, `ruleEngine.ts`).
+
+## Commands
 
 ```bash
-cp .env.example .env   # popuni vrednosti
-npm install
-npm run dev            # tsx watch src/index.ts, port 3000
-npm run build          # tsc → dist/
-npm run start          # node dist/index.js (produkcija)
+npm run dev        # tsx watch src/index.ts
+npm run build      # tsc → dist/
+npm run start      # node dist/index.js
 ```
 
-Health check: GET /health → {"status":"ok"}
+## RULES — read these before writing any code
 
-### package.json scripts
+### Architecture rules
 
-```json
-{
-  "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js"
-  }
-}
+- EVERY module follows the pattern: routes → service → DB. Routes NEVER contain business logic.
+- NEVER import from one module's internals into another. Use the module's service as the public API.
+- Allowed dependency direction: auth → shared. contracts → shared + audit. inspections → shared + audit + contracts. analysis → shared + audit + contracts + inspections. audit → shared only. blockchain → shared only.
+- NEVER create circular dependencies between modules.
+- ALL types live in `shared/types/index.ts`. NEVER define types in module files. Re-export if needed.
+- ALL middleware lives in `shared/middleware/`. Modules do NOT define their own middleware.
+
+### TypeScript rules
+
+- strict mode is ON. NEVER use `any`. Use `unknown` + type guards for unparsed data (e.g., LLM responses).
+- ALWAYS use `import` syntax, NEVER `require()`. esModuleInterop is true.
+- ALWAYS provide generic type to `db.query<T>()`. Example: `db.query<Contract>('SELECT ...')`.
+- ALWAYS use parameterized queries ($1, $2...). NEVER interpolate values into SQL strings.
+- Async/await everywhere. NEVER use callbacks.
+- Export typed functions or classes from services. Each export has an explicit return type.
+
+### Zod validation rules
+
+- EVERY route that accepts a body MUST have a Zod schema in `{module}.schema.ts`.
+- Use `zodMiddleware(schema)` in the route chain — it validates `req.body` and returns 400 on failure.
+- ALWAYS infer TypeScript types from Zod schemas: `export type CreateContractInput = z.infer<typeof createContractSchema>;`
+- NEVER duplicate types manually when a Zod schema exists. The schema IS the type definition.
+- Zod schemas define what the CLIENT sends. DB types in shared/types/index.ts define what the DB returns. These are different shapes — do NOT conflate them.
+
+### DB rules
+
+- Use pg Pool from `shared/db/client.ts` for ALL data queries.
+- Use Supabase client from `shared/db/client.ts` ONLY for Storage operations (upload/download images).
+- ALWAYS use RETURNING * on INSERT/UPDATE to get the full row back.
+- UUID for all IDs — `gen_random_uuid()` in DB, `uuid` package in code when needed client-side.
+- Decimal amounts (EUR) are `DECIMAL(10,2)` in DB, `number` in TypeScript.
+- All timestamps are `TIMESTAMPTZ` in DB. Use ISO strings in API responses.
+
+### State machine rules
+
+- EVERY contract status change MUST go through `validateTransition()` in `modules/contracts/stateMachine.ts`.
+- NEVER directly UPDATE contracts SET status without calling validateTransition() first.
+- EVERY status change MUST log an audit event via `audit.service.logAuditEvent()`.
+- The actor (landlord/tenant/system) for each transition is fixed — validate actor role before allowing the transition.
+
+### Error handling rules
+
+- ALWAYS wrap route handlers in `asyncHandler()` from `shared/middleware/errorHandler.ts`.
+- Throw `AppError` from `shared/utils/errors.ts` for expected errors (400, 401, 403, 404, 409).
+- Let unexpected errors propagate to the central error handler — it catches, logs, returns 500.
+- NEVER return raw error messages to the client in production. Sanitize in errorHandler.
+- NEVER use try/catch inside route handlers — let asyncHandler handle it. Use try/catch only in services when you need to handle a specific failure (e.g., Solana call).
+
+### LLM rules
+
+- NEVER send all images in one API call. Send check-in + check-out images PER ROOM.
+- ALWAYS parse and validate LLM responses. The response may be broken JSON, markdown-wrapped, or complete garbage.
+- ALWAYS sanitize severity to one of: 'none', 'minor', 'medium', 'major'. Default to 'minor' if unknown.
+- ALWAYS clamp confidence to 0.0-1.0. Default to 0.5 if missing/invalid.
+- ALWAYS store raw_llm_response in analysis_results — for debugging.
+- When MOCK_LLM=true, return hardcoded responses per room type. NEVER call Gemini API in mock mode.
+
+### Blockchain rules
+
+- EVERY Solana call MUST be wrapped in try/catch. If it fails, log a warning and continue — Solana is NOT critical path.
+- NEVER put personal data on Solana. Only hashes, amounts in lamports, and wallet pubkeys.
+- PDA seed format: `["rental", contractIdAsBytes]`.
+- Solana is called at 5 moments only: contract creation (initialize), tenant accepts (lock_deposit), check-in approved (record_checkin), check-out approved (record_checkout), finalization (execute_settlement).
+- Everything between those moments (rejections, re-uploads, LLM analysis) is off-chain.
+
+### Audit rules
+
+- EVERY significant action logs an audit event. Missing audit = broken feature.
+- Audit events form a hash chain: each event's hash includes the previous event's hash.
+- Audit is append-only. NEVER update or delete audit events.
+- Audit service is a LEAF — it never calls other modules. Other modules call INTO audit.
+
+## Env vars
+
 ```
-
-### tsconfig.json
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "commonjs",
-    "lib": ["ES2022"],
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
-}
-```
-
-### Ključne dev zavisnosti
-
-```bash
-npm install -D typescript tsx @types/node @types/express @types/cors @types/morgan @types/multer @types/pg @types/uuid
-```
-
-tsx se koristi za development (zamena za ts-node + nodemon, brži i bez konfiguracije). Za produkciju se kompajlira sa tsc i pokreće sa node.
-
-## Env varijable
-
-```
-SUPABASE_URL           # https://xxxxx.supabase.co
+# Supabase
+DATABASE_URL                 # postgresql://... connection string
+SUPABASE_URL                 # https://xxxxx.supabase.co
 SUPABASE_ANON_KEY
-SUPABASE_SERVICE_KEY   # za server-side operacije (Storage, admin)
-DATABASE_URL           # postgresql://... connection string
+SUPABASE_SERVICE_KEY         # server-side operations
 
+# Firebase
 FIREBASE_PROJECT_ID
-FIREBASE_PRIVATE_KEY   # sa \n escape-ovima
+FIREBASE_PRIVATE_KEY         # with \n escapes
 FIREBASE_CLIENT_EMAIL
 
+# Gemini
 GEMINI_API_KEY
 
-SOLANA_RPC_URL         # https://api.devnet.solana.com
-SOLANA_AUTHORITY_KEYPAIR  # JSON array byte-ova
+# Solana
+SOLANA_RPC_URL               # https://api.devnet.solana.com
+SOLANA_AUTHORITY_KEYPAIR     # JSON byte array
 SOLANA_PROGRAM_ID
 
-PORT                   # default 3000
-NODE_ENV               # development | production
-MOCK_AUTH              # true = koristi X-Mock-User header umesto Firebase-a
-MOCK_LLM              # true = koristi hardkodirane LLM odgovore
+# App
+PORT                         # default 3000
+NODE_ENV                     # development | production
+MOCK_AUTH                    # true = use X-Mock-User header
+MOCK_LLM                    # true = hardcoded LLM responses
 ```
 
-## Tipovi (src/types/index.ts)
+ALL vars are validated at startup by Zod in `config/env.ts`. Missing required var → server crashes immediately with a clear error message.
 
-Svi domenski tipovi su definisani na jednom mestu. Importovati odatle, ne redefinisati.
+## Types — single source of truth
+
+ALL types are in `shared/types/index.ts`. Here are the key ones:
 
 ```typescript
+// Contract lifecycle — 14 states
 export type ContractStatus =
   | 'draft' | 'pending_acceptance' | 'accepted'
   | 'checkin_in_progress' | 'checkin_pending_approval' | 'checkin_rejected'
@@ -198,6 +217,33 @@ export interface Contract {
   updated_at: Date;
 }
 
+export interface Room {
+  id: string;
+  contract_id: string;
+  room_type: RoomType;
+  custom_name: string | null;
+  is_mandatory: boolean;
+  display_order: number;
+  created_at: Date;
+}
+
+export interface InspectionImage {
+  id: string;
+  contract_id: string;
+  room_id: string;
+  inspection_type: InspectionType;
+  image_url: string;
+  image_hash: string;
+  captured_at: Date;
+  gps_lat: number | null;
+  gps_lng: number | null;
+  device_id: string;
+  note: string | null;
+  image_index: number;
+  uploaded_by: string;
+  created_at: Date;
+}
+
 export interface Finding {
   item: string;
   description: string;
@@ -242,6 +288,7 @@ export interface SettlementResult {
   landlord_receives_eur: number;
   settlement_type: SettlementType;
   requires_manual_review: boolean;
+  explanation: string;
 }
 
 export interface AuditEvent {
@@ -278,11 +325,10 @@ export interface ImageMetadata {
 }
 ```
 
-### Express Request extension (src/types/express.d.ts)
+### Express Request extension (shared/types/express.d.ts)
 
 ```typescript
 import { User } from './index';
-
 declare global {
   namespace Express {
     interface Request {
@@ -292,151 +338,242 @@ declare global {
 }
 ```
 
-## Baza podataka
-
-PostgreSQL na Supabase. Sedam tabela: users, contracts, rooms, inspection_images, analysis_results, settlements, audit_events.
-
-Koristimo direktne SQL upite preko pg Pool-a (db.query()), NE Supabase JS klijent za čitanje/pisanje podataka. Supabase klijent koristimo samo za Storage (upload/download slika).
-
-### Ključni tipovi (PostgreSQL ENUM-ovi)
-
-**contract_status:** draft → pending_acceptance → accepted → checkin_in_progress → checkin_pending_approval → (checkin_rejected ↩) → active → checkout_in_progress → checkout_pending_approval → (checkout_rejected ↩) → pending_analysis → settlement → completed
-
-**inspection_type:** checkin, checkout
-
-**room_type:** kuhinja, kupatilo, dnevna_soba, spavaca_soba, hodnik, balkon, ostava, terasa, garaza, druga
-
-**settlement_type:** automatic, manual_review
-
-### Konvencije za upite
-
-```typescript
-import { db } from '../db/client';
-import type { Contract } from '../types';
-
-// SELECT — uvek prosleđuj generički tip
-const result = await db.query<Contract>('SELECT * FROM contracts WHERE id = $1', [id]);
-const contract = result.rows[0]; // tip: Contract
-
-// INSERT sa RETURNING
-const result = await db.query<Contract>(
-  'INSERT INTO contracts (id, landlord_id, ...) VALUES ($1, $2, ...) RETURNING *',
-  [id, landlordId]
-);
-
-// UPDATE
-await db.query(
-  'UPDATE contracts SET status = $1, updated_at = NOW() WHERE id = $2',
-  [newStatus, id]
-);
-```
-
-Uvek koristi parameterizovane upite ($1, $2...). Nikad string interpolacija u SQL-u.
-
-## API konvencije
-
-Base path: /api/v1
-
-Svi endpoint-i osim /auth/* i /contracts/invite/:code zahtevaju auth middleware. Autentifikovani korisnik je dostupan kao req.user (tip: User).
-
-### Rute
-
-```
-Auth:
-  POST   /auth/verify                    # Firebase token → session
-  GET    /auth/me                        # Profil korisnika
-
-Contracts:
-  POST   /contracts                      # Kreiranje (landlord)
-  GET    /contracts                      # Lista mojih ugovora
-  GET    /contracts/:id                  # Detalji + rooms
-  GET    /contracts/invite/:code         # Preview pre prihvatanja (bez auth-a)
-  POST   /contracts/:id/accept           # Prihvatanje (tenant)
-  POST   /contracts/:id/cancel           # Otkazivanje
-
-Inspections:
-  POST   /contracts/:id/checkin/start    # Započni check-in (landlord)
-  POST   /contracts/:id/checkin/images   # Upload slika (multipart/form-data)
-  POST   /contracts/:id/checkin/complete # Završi check-in
-  POST   /contracts/:id/checkin/approve  # Stanar odobrava
-  POST   /contracts/:id/checkin/reject   # Stanar odbija (body: { comment })
-  GET    /contracts/:id/checkin/images   # Dohvati slike (thumbnailovi za check-out)
-  POST   /contracts/:id/checkout/start
-  POST   /contracts/:id/checkout/images
-  POST   /contracts/:id/checkout/complete
-  POST   /contracts/:id/checkout/approve
-  POST   /contracts/:id/checkout/reject
-
-Analysis:
-  POST   /contracts/:id/analyze          # Pokreni LLM (automatski nakon checkout approve)
-  GET    /contracts/:id/analysis         # Rezultati po prostoriji
-  GET    /contracts/:id/settlement       # Settlement breakdown
-  POST   /contracts/:id/finalize         # Finalizacija
-
-Audit:
-  GET    /contracts/:id/audit            # Timeline svih evenata
-```
-
-### Response format
-
-Uspešan odgovor:
-```json
-{ "contract": { ... } }
-{ "contracts": [ ... ] }
-{ "settlement": { ... } }
-{ "events": [ ... ], "chain_valid": true }
-```
-
-Greška:
-```json
-{ "error": "Opis greške" }
-```
+## Patterns — use these exactly
 
 ### Route handler pattern
 
 ```typescript
-import { Router, Request, Response } from 'express';
-import { asyncHandler } from '../middleware/errorHandler';
-import { authMiddleware } from '../middleware/auth';
+import { Router } from 'express';
+import { asyncHandler } from '../../shared/middleware/errorHandler';
+import { authMiddleware } from '../../shared/middleware/auth';
+import { zodMiddleware } from '../../shared/middleware/validate';
+import { createContractSchema } from './contracts.schema';
+import * as contractsService from './contracts.service';
 
 const router = Router();
 
-router.post('/:id/checkin/start', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
-  const contractId = req.params.id;
-  const user = req.user; // tip: User
-  // ... logika
-  res.json({ status: 'checkin_in_progress' });
-}));
+router.post('/',
+  authMiddleware,
+  zodMiddleware(createContractSchema),
+  asyncHandler(async (req, res) => {
+    const contract = await contractsService.create(req.user, req.body);
+    res.status(201).json({ contract });
+  })
+);
 
 export default router;
 ```
 
+### Zod schema pattern
+
+```typescript
+import { z } from 'zod';
+
+export const createContractSchema = z.object({
+  property_address: z.string().min(1).max(500),
+  property_gps: z.object({
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+  }).optional(),
+  rent_monthly_eur: z.number().positive(),
+  deposit_amount_eur: z.number().positive(),
+  start_date: z.string().date(),
+  end_date: z.string().date(),
+  deposit_rules: z.string().max(2000).optional(),
+  notes: z.string().max(2000).optional(),
+  rooms: z.array(z.object({
+    room_type: z.enum(['kuhinja', 'kupatilo', 'dnevna_soba', 'spavaca_soba',
+                        'hodnik', 'balkon', 'ostava', 'terasa', 'garaza', 'druga']),
+    custom_name: z.string().max(100).optional(),
+    is_mandatory: z.boolean().default(true),
+  })).min(1).max(15),
+});
+
+export type CreateContractInput = z.infer<typeof createContractSchema>;
+```
+
+### Zod middleware pattern
+
+```typescript
+import { z, ZodSchema } from 'zod';
+import { Request, Response, NextFunction } from 'express';
+
+export function zodMiddleware(schema: ZodSchema) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: result.error.flatten().fieldErrors,
+      });
+    }
+    req.body = result.data;
+    next();
+  };
+}
+```
+
+### Service pattern (DB interaction)
+
+```typescript
+import { db } from '../../shared/db/client';
+import type { Contract, User } from '../../shared/types';
+import type { CreateContractInput } from './contracts.schema';
+import { AppError } from '../../shared/utils/errors';
+import { logAuditEvent } from '../audit/audit.service';
+import { generateInviteCode } from './inviteService';
+import { sha256 } from '../../shared/utils/hash';
+
+export async function create(user: User, input: CreateContractInput): Promise<Contract> {
+  const inviteCode = generateInviteCode();
+  const contractHash = sha256(JSON.stringify({
+    ...input,
+    landlord_id: user.id,
+    invite_code: inviteCode,
+  }));
+
+  const result = await db.query<Contract>(
+    `INSERT INTO contracts
+       (landlord_id, invite_code, property_address, property_gps_lat, property_gps_lng,
+        rent_monthly_eur, deposit_amount_eur, start_date, end_date,
+        deposit_rules, notes, contract_hash, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'draft')
+     RETURNING *`,
+    [user.id, inviteCode, input.property_address,
+     input.property_gps?.lat ?? null, input.property_gps?.lng ?? null,
+     input.rent_monthly_eur, input.deposit_amount_eur,
+     input.start_date, input.end_date,
+     input.deposit_rules ?? null, input.notes ?? null,
+     contractHash]
+  );
+
+  const contract = result.rows[0];
+
+  // Insert rooms
+  for (const [i, room] of input.rooms.entries()) {
+    await db.query(
+      `INSERT INTO rooms (contract_id, room_type, custom_name, is_mandatory, display_order)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [contract.id, room.room_type, room.custom_name ?? null, room.is_mandatory, i]
+    );
+  }
+
+  await logAuditEvent(contract.id, 'CONTRACT_CREATED', user.id, 'landlord', {
+    contract_hash: contractHash,
+  });
+
+  return contract;
+}
+```
+
+### Error class pattern
+
+```typescript
+export class AppError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number = 400,
+    public code: string = 'BAD_REQUEST'
+  ) {
+    super(message);
+    this.name = 'AppError';
+  }
+}
+
+// Usage in services:
+throw new AppError('Contract not found', 404, 'NOT_FOUND');
+throw new AppError('Invalid state transition', 409, 'INVALID_TRANSITION');
+throw new AppError('Only the tenant can approve check-in', 403, 'FORBIDDEN');
+```
+
+### asyncHandler pattern
+
+```typescript
+import { Request, Response, NextFunction } from 'express';
+
+export function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    fn(req, res, next).catch(next);
+  };
+}
+
+// Central error handler (mounted last in app.ts)
+export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction) {
+  if (err instanceof AppError) {
+    return res.status(err.statusCode).json({ error: err.message, code: err.code });
+  }
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+}
+```
+
+### Auth middleware pattern
+
+```typescript
+import admin from 'firebase-admin';
+import { env } from '../../config/env';
+import { db } from '../db/client';
+import type { User } from '../types';
+
+const MOCK_USERS: Record<string, Omit<User, 'created_at' | 'updated_at'>> = {
+  landlord_marko: {
+    id: 'mock-landlord-001', phone: '+381641111111',
+    display_name: 'Marko Petrović', firebase_uid: 'mock-firebase-landlord',
+    device_id: 'mock-device-1', solana_pubkey: null,
+  },
+  tenant_ana: {
+    id: 'mock-tenant-001', phone: '+381642222222',
+    display_name: 'Ana Jovanović', firebase_uid: 'mock-firebase-tenant',
+    device_id: 'mock-device-2', solana_pubkey: null,
+  },
+};
+
+export async function authMiddleware(req, res, next) {
+  if (env.MOCK_AUTH === 'true') {
+    const mockKey = req.headers['x-mock-user'] as string;
+    if (!mockKey || !MOCK_USERS[mockKey]) {
+      return res.status(401).json({ error: 'Invalid X-Mock-User header' });
+    }
+    req.user = MOCK_USERS[mockKey] as User;
+    return next();
+  }
+
+  const token = req.headers.authorization?.split('Bearer ')[1];
+  if (!token) return res.status(401).json({ error: 'Token required' });
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.user = await findOrCreateUser(decoded);
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+```
+
 ## State machine
 
-Ugovor prolazi kroz 14 statusa. Svaka tranzicija se validira u config/stateMachine.ts.
-
-Dozvoljene tranzicije i ko ih pokreće:
+14 states, fixed transitions, fixed actor roles. Defined in `modules/contracts/stateMachine.ts`.
 
 ```
-draft → pending_acceptance                    landlord (šalje invite)
-pending_acceptance → accepted                 tenant (prihvata)
-accepted → checkin_in_progress                landlord (pokreće check-in)
-checkin_in_progress → checkin_pending_approval landlord (završava slikanje)
-checkin_pending_approval → active             tenant (odobrava slike)
-checkin_pending_approval → checkin_rejected   tenant (odbija slike)
-checkin_rejected → checkin_in_progress        landlord (ponovo slika)
-active → checkout_in_progress                 tenant (pokreće check-out)
-checkout_in_progress → checkout_pending_approval tenant
-checkout_pending_approval → pending_analysis  landlord (odobrava slike)
-checkout_pending_approval → checkout_rejected landlord (odbija slike)
-checkout_rejected → checkout_in_progress      tenant (ponovo slika)
-pending_analysis → settlement                 system (LLM + rule engine)
-settlement → completed                       both (finalizacija)
+draft → pending_acceptance                    (landlord sends invite)
+pending_acceptance → accepted                 (tenant accepts)
+accepted → checkin_in_progress                (landlord starts check-in)
+checkin_in_progress → checkin_pending_approval (landlord finishes photos)
+checkin_pending_approval → active             (tenant approves photos)
+checkin_pending_approval → checkin_rejected    (tenant rejects photos)
+checkin_rejected → checkin_in_progress         (landlord re-photographs)
+active → checkout_in_progress                 (tenant starts check-out)
+checkout_in_progress → checkout_pending_approval (tenant finishes photos)
+checkout_pending_approval → pending_analysis  (landlord approves photos)
+checkout_pending_approval → checkout_rejected (landlord rejects photos)
+checkout_rejected → checkout_in_progress      (tenant re-photographs)
+pending_analysis → settlement                 (system — LLM + rule engine)
+settlement → completed                       (both finalize)
+Any state with allowed cancel → cancelled
 ```
 
 ```typescript
-import type { ContractStatus, ActorRole } from '../types';
-
 export const STATE_TRANSITIONS: Record<ContractStatus, ContractStatus[]> = {
   draft:                      ['pending_acceptance', 'cancelled'],
   pending_acceptance:         ['accepted', 'cancelled'],
@@ -454,352 +591,175 @@ export const STATE_TRANSITIONS: Record<ContractStatus, ContractStatus[]> = {
   cancelled:                  [],
 };
 
-export function validateTransition(
-  currentStatus: ContractStatus,
-  newStatus: ContractStatus,
-  actorRole: ActorRole
-): { valid: boolean; error?: string } {
-  // ...
-}
+export const TRANSITION_ACTORS: Record<string, ActorRole> = {
+  'draft → pending_acceptance':                     'landlord',
+  'pending_acceptance → accepted':                  'tenant',
+  'accepted → checkin_in_progress':                 'landlord',
+  'checkin_in_progress → checkin_pending_approval':  'landlord',
+  'checkin_pending_approval → active':              'tenant',
+  'checkin_pending_approval → checkin_rejected':    'tenant',
+  'checkin_rejected → checkin_in_progress':         'landlord',
+  'active → checkout_in_progress':                  'tenant',
+  'checkout_in_progress → checkout_pending_approval': 'tenant',
+  'checkout_pending_approval → pending_analysis':   'landlord',
+  'checkout_pending_approval → checkout_rejected':  'landlord',
+  'checkout_rejected → checkout_in_progress':       'tenant',
+  'pending_analysis → settlement':                  'system',
+  'settlement → completed':                        'both',
+};
 ```
 
-Kad menjaš status ugovora, uvek koristi validateTransition() pre UPDATE-a. Nikad direktno UPDATE contracts SET status bez validacije.
+## API routes
 
-## Ko slika šta
+Base: `/api/v1`
 
-- **Check-in:** stanodavac (landlord) slika stan pre useljenja
-- **Check-out:** stanar (tenant) slika stan pre iseljenja
-- Druga strana mora da odobri slike pre nastavka
-- Odbijanje sadrži komentar — strana koja je slikala može ponovo da slika
+All routes except `/auth/*` and `/contracts/invite/:code` require auth middleware.
 
-## Auth
+```
+POST   /auth/verify                      # Firebase token → user + session
+GET    /auth/me                          # Current user profile
 
-Dva moda, kontrolisana env varijablom MOCK_AUTH:
+POST   /contracts                        # Create contract (landlord)
+GET    /contracts                        # List my contracts
+GET    /contracts/:id                    # Contract details + rooms
+GET    /contracts/invite/:code           # Preview before accepting (no auth)
+POST   /contracts/:id/accept             # Accept contract (tenant)
+POST   /contracts/:id/cancel             # Cancel contract
 
-**Mock mod** (MOCK_AUTH=true): klijent šalje X-Mock-User: landlord_marko ili X-Mock-User: tenant_ana header. Dva predefinisana korisnika. Koristi za development i testiranje.
+POST   /contracts/:id/checkin/start      # Start check-in (landlord)
+POST   /contracts/:id/checkin/images     # Upload images (multipart)
+POST   /contracts/:id/checkin/complete   # Finish check-in
+POST   /contracts/:id/checkin/approve    # Tenant approves
+POST   /contracts/:id/checkin/reject     # Tenant rejects (body: {comment})
+GET    /contracts/:id/checkin/images     # Get check-in images (thumbnails)
+POST   /contracts/:id/checkout/start     # (same pattern as checkin)
+POST   /contracts/:id/checkout/images
+POST   /contracts/:id/checkout/complete
+POST   /contracts/:id/checkout/approve
+POST   /contracts/:id/checkout/reject
 
-**Firebase mod** (MOCK_AUTH=false): klijent šalje Authorization: Bearer <firebase_id_token>. Backend verifikuje token sa Firebase Admin SDK i mapira na korisnika u users tabeli.
+POST   /contracts/:id/analyze           # Trigger LLM analysis
+GET    /contracts/:id/analysis           # Analysis results per room
+GET    /contracts/:id/settlement         # Settlement breakdown
+POST   /contracts/:id/finalize          # Finalize settlement
 
-req.user je uvek tipa User (iz src/types/index.ts).
-
-## LLM servis (llmService.ts)
-
-Koristi Gemini 1.5 Pro Vision. Šalje parove check-in/check-out slika po prostoriji (ne sve odjednom).
-
-Za jednu prostoriju: 3-10 BEFORE slika + 3-10 AFTER slika + prompt → JSON odgovor sa findings.
-
-### Potpis funkcije
-
-```typescript
-export async function analyzeRoom(
-  roomName: string,
-  checkinImageBuffers: Buffer[],
-  checkoutImageBuffers: Buffer[]
-): Promise<RoomAnalysis>
+GET    /contracts/:id/audit             # Audit trail timeline
 ```
 
-### LLM izlaz — format
+### Response format
 
 ```json
-{
-  "room": "kuhinja",
-  "findings": [
-    {
-      "item": "parket",
-      "description": "Nova ogrebotina dužine ~30cm",
-      "severity": "minor",
-      "confidence": 0.85,
-      "wear_and_tear": false,
-      "location_in_image": "donji levi deo"
-    }
-  ],
-  "summary": "Jedna manja ogrebotina.",
-  "overall_condition": "good"
-}
+// Success
+{ "contract": { ... } }
+{ "contracts": [ ... ] }
+{ "settlement": { ... } }
+{ "events": [ ... ], "chain_valid": true }
+
+// Error
+{ "error": "Description", "code": "ERROR_CODE" }
 ```
 
-severity je tip Severity: 'none' | 'minor' | 'medium' | 'major'
-confidence je float 0.0–1.0
-wear_and_tear true = normalno habanje, ne naplaćuje se
+## Rule engine
 
-### Parsiranje
-
-LLM može da vrati broken JSON ili markdown-wrapped JSON. parseResponse() u llmService.ts čisti markdown fences, pokušava parsiranje, pa regex ekstrakciju, pa fallback objekat sa parse_error: true.
-
-### Mock mod
-
-Kad je MOCK_LLM=true, analyzeRoom() vraća hardkodirani odgovor po prostoriji (kuhinja=čisto, kupatilo=puklo ogledalo, dnevna_soba=ogrebotina+habanje, spavaća=čisto). Koristi za demo kad Gemini API ne radi.
-
-## Rule engine (ruleEngine.ts)
-
-Deterministički — isti input uvek daje isti output. Nema AI, nema subjektivnosti.
-
-### Potpis
+Pure deterministic function. Same input → same output. No AI, no DB calls.
 
 ```typescript
-export function calculateSettlement(
-  depositAmountEur: number,
-  analysisResults: RoomAnalysis[]
-): SettlementResult
-```
-
-### Fiksne stope
-
-```typescript
-export const DEDUCTION_RATES: Record<Severity, number> = {
+const DEDUCTION_RATES: Record<Severity, number> = {
   none:   0,
-  minor:  0.03,   // 3%
+  minor:  0.03,   // 3% of deposit
   medium: 0.10,   // 10%
   major:  0.25,   // 25%
 };
-
-export const CONFIDENCE_THRESHOLD = 0.6;
+const CONFIDENCE_THRESHOLD = 0.6;
 ```
 
-### Pravila
+Rules applied in order:
+1. `wear_and_tear: true` → 0% deduction, skip finding
+2. `confidence < 0.6` → skip finding, flag for manual review
+3. Apply DEDUCTION_RATES[severity] × deposit_amount
+4. Cap total at 100% of deposit
+5. If total > 50% → requires_manual_review: true
+6. If any low-confidence finding → requires_manual_review: true
 
-1. wear_and_tear: true → 0% odbitak (normalno habanje se ne naplaćuje)
-2. confidence < 0.6 → nalaz se preskače, ide na manual review flag
-3. Ukupni odbitak nikad ne prelazi 100% depozita
-4. Ako ukupni odbitak > 50% → requires_manual_review: true
-5. Ako postoji bilo koji low confidence nalaz → requires_manual_review: true
+## LLM prompt
 
-### Izlaz (tip: SettlementResult)
+Send to Gemini for each room with check-in (BEFORE) and check-out (AFTER) images:
 
-```json
+```
+Ti si stručnjak za procenu stanja nekretnina. Dobijaš dve grupe slika iste prostorije:
+- Grupa "BEFORE" (check-in): stanje pri useljenju
+- Grupa "AFTER" (check-out): stanje pri iseljenju
+
+Tvoj zadatak je ISKLJUČIVO da identifikuješ i opišeš promene između BEFORE i AFTER stanja.
+NE donosiš finansijske odluke. NE procenjuješ troškove popravke.
+
+Za svaku detektovanu promenu:
+1. Opiši šta se promenilo (kratko, precizno)
+2. Identifikuj predmet/površinu
+3. Klasifikuj ozbiljnost: "none" | "minor" | "medium" | "major"
+4. Proceni sigurnost (confidence) 0.0-1.0
+5. Da li je "normalno habanje" (wear_and_tear): true/false
+
+Odgovori ISKLJUČIVO u JSON formatu, bez markdown formatiranja:
 {
-  "deposit_amount_eur": 800,
-  "deductions": [],
-  "skipped_findings": [],
-  "total_deduction_eur": 184,
-  "total_deduction_percent": 23,
-  "tenant_receives_eur": 616,
-  "landlord_receives_eur": 184,
-  "settlement_type": "automatic",
-  "requires_manual_review": false
+  "room": "naziv",
+  "findings": [{ "item", "description", "severity", "confidence", "wear_and_tear", "location_in_image" }],
+  "summary": "...",
+  "overall_condition": "excellent|good|fair|damaged"
 }
 ```
 
-## Audit trail (auditTrail.ts)
+## Audit trail
 
-Svaki značajan event se loguje u audit_events tabelu sa hash chain-om.
+Hash chain: each event's hash = SHA-256(contract_id + event_type + actor_id + data + previous_hash + timestamp). If any event is tampered with, the chain breaks and `verifyAuditChain()` returns false.
 
-### Potpisi
+Events logged at every state change — see AuditEventType in types section.
 
-```typescript
-export async function logAuditEvent(
-  contractId: string,
-  eventType: AuditEventType,
-  actorId: string | null,
-  actorRole: ActorRole,
-  data: Record<string, unknown>
-): Promise<AuditEvent>
+## Solana integration
 
-export async function verifyAuditChain(contractId: string): Promise<boolean>
-```
+Called at 5 moments:
+1. Contract created → `initialize()` — stores contract hash in PDA
+2. Tenant accepts → `lock_deposit()` — tenant sends SOL to PDA escrow
+3. Check-in approved → `record_checkin()` — stores image hash
+4. Check-out approved → `record_checkout()` — stores image hash
+5. Finalization → `execute_settlement()` — releases escrow per settlement split
 
-Svaki event sadrži:
-- event_hash: SHA-256(contract_id + event_type + actor_id + data + previous_hash + timestamp)
-- previous_hash: hash prethodnog eventa za isti ugovor
+PDA seed: `["rental", contractIdAsBytes]`
 
-Ovo formira chain of trust — ako se bilo koji event retroaktivno promeni, hash chain se lomi i verifyAuditChain() vraća false.
+Everything else is off-chain. Solana calls are always wrapped in try/catch with graceful degradation.
 
-### Event tipovi (tip: AuditEventType)
+## Common mistakes to avoid
 
-CONTRACT_CREATED, INVITE_SENT, CONTRACT_ACCEPTED, DEPOSIT_LOCKED, CHECKIN_STARTED, CHECKIN_IMAGE_CAPTURED, CHECKIN_COMPLETED, CHECKIN_APPROVED, CHECKIN_REJECTED, CHECKOUT_STARTED, CHECKOUT_IMAGE_CAPTURED, CHECKOUT_COMPLETED, CHECKOUT_APPROVED, CHECKOUT_REJECTED, LLM_ANALYSIS_STARTED, LLM_ANALYSIS_COMPLETED, RULE_ENGINE_EXECUTED, SETTLEMENT_PROPOSED, SETTLEMENT_VIEWED, SETTLEMENT_FINALIZED, DEPOSIT_RELEASED, CONTRACT_HASH_STORED, CONTRACT_CANCELLED
+1. Updating contract status without validateTransition() → broken state machine
+2. Forgetting audit event after status change → broken audit trail
+3. Sending all images to LLM in one call → token limit exceeded
+4. Trusting raw LLM output → parse errors crash the pipeline
+5. Putting personal data on Solana → privacy violation
+6. Using Supabase JS for SQL queries → use pg Pool
+7. Using `any` → use `unknown` + type guard
+8. Missing ON DELETE CASCADE → orphaned records
+9. Hardcoding env values → use config/env.ts
+10. Defining types outside shared/types → type duplication
 
-## Solana integracija (services/solana/)
-
-### Arhitektura odvajanja
-
-Blockchain kod je u **posebnom modulu** (`app/blockchain/`) koji se razvija nezavisno od servera. Server i blockchain tim mogu raditi paralelno bez konflikata.
-
-```
-app/
-├── server/          ← ovaj modul (server tim)
-│   └── src/services/solana/
-│       ├── ISolanaService.ts    # Interfejs (kopija iz blockchain modula)
-│       ├── MockSolanaService.ts # Mock za development
-│       └── index.ts             # Factory — bira real vs mock automatski
-└── blockchain/      ← poseban modul (blockchain tim)
-    └── client/src/
-        ├── interface.ts         # IZVOR ISTINE za interfejs
-        └── solanaService.ts     # Prava implementacija
-```
-
-**Korišćenje u route handleru:**
-```typescript
-import { createSolanaService } from '../services/solana';
-
-// Kreira se jednom pri startu aplikacije
-const solana = createSolanaService();
-
-// Poziv u route-u — uvijek try/catch jer je blockchain bonus layer
-let solanaTx: string | null = null;
-try {
-  const result = await solana.initializeContract(contractId, contractHash, depositLamports, landlordWallet);
-  solanaTx = result.tx_signature;
-} catch (err) {
-  console.error('[Solana] initializeContract failed, continuing:', err);
-}
-```
-
-**Automatski odabir implementacije:**
-- `SOLANA_PROGRAM_ID` nije setovan → koristi `MockSolanaService` (log: `[MockSolana] ...`)
-- `SOLANA_PROGRAM_ID` je setovan + `@rentsmart/blockchain` je instaliran → koristi pravu `SolanaService` (log: `[Solana] ...`)
-
-**Integracija (kad blockchain tim završi):**
-1. `npm install` u root direktorijumu (npm workspaces linkuje `@rentsmart/blockchain`)
-2. Postavi `SOLANA_PROGRAM_ID`, `SOLANA_RPC_URL`, `SOLANA_AUTHORITY_KEYPAIR` u `.env`
-3. Restart servera — factory automatski preuzima pravu implementaciju
-
-Za detalje blockchain razvoja vidi: `app/blockchain/CLAUDE.md`
-
-### Originalna specifikacija (solanaService.ts)
-
-Solana se koristi za tri stvari: nepromenljiv zapis hash-a ugovora, escrow depozita u PDA, i automatsku raspodelu pri settlement-u.
-
-Backend poziva Solana program na 5 ključnih momenata:
-
-| Momenat | Solana instrukcija | Kad se poziva |
-|---------|-------------------|---------------|
-| Kreiranje ugovora | initialize() | POST /contracts |
-| Stanar prihvata | lock_deposit() | POST /contracts/:id/accept |
-| Check-in odobren | record_checkin() | POST /contracts/:id/checkin/approve |
-| Check-out odobren | record_checkout() | POST /contracts/:id/checkout/approve |
-| Finalizacija | execute_settlement() | POST /contracts/:id/finalize |
-
-Sve između (odbijanja, ponovna slikanja, LLM analiza) je off-chain — samo PostgreSQL + audit trail.
-
-PDA seed: ["rental", contract_id_as_bytes]
-
-Ako Solana poziv ne uspe, backend treba da nastavi sa radom (graceful degradation) — Solana je bonus layer za dokaz, ne kritični put.
-
-### Klasa
-
-```typescript
-export class SolanaService {
-  constructor();
-  findPDA(contractId: string): { pda: PublicKey; bump: number };
-  async initializeContract(contractId: string, contractHash: Buffer, depositLamports: number, landlordPubkey: string): Promise<{ tx_signature: string; pda_address: string; explorer_url: string }>;
-  async buildLockDepositTx(contractId: string, tenantPubkey: string): Promise<{ serialized_tx: string }>;
-  async recordCheckin(contractId: string, imageHash: Buffer, landlordPubkey: string): Promise<{ tx_signature: string }>;
-  async recordCheckout(contractId: string, imageHash: Buffer, tenantPubkey: string): Promise<{ tx_signature: string }>;
-  async executeSettlement(contractId: string, settlementHash: Buffer, tenantAmount: number, landlordAmount: number, tenantPubkey: string, landlordPubkey: string): Promise<{ tx_signature: string; explorer_url: string }>;
-  async getAgreement(contractId: string): Promise<SolanaAgreement | null>;
-  static hashImages(imageHashes: string[]): Buffer;
-  static eurToLamports(eurAmount: number): number;
-}
-```
-
-## Image upload flow
-
-Slike se uploaduju kao multipart/form-data na /contracts/:id/checkin/images (ili checkout).
-
-Za svaku sliku, mobilna aplikacija šalje:
-- images[]: File (JPEG)
-- room_id: UUID prostorije
-- captured_at[]: ISO timestamp po slici
-- gps_lat, gps_lng: GPS koordinate
-- device_id: identifikator uređaja
-- notes[]: opciona napomena po slici
-
-### Backend validacija metadata
-
-Svaka slika se validira:
-1. Timestamp: unutar ±1h od serverskog vremena
-2. GPS: unutar 200m od adrese stana iz ugovora (haversine distance)
-3. Device ID: konzistentan tokom cele inspekcije
-
-### Supabase Storage putanja
-
-```
-rentsmart-images/{contract_id}/{checkin|checkout}/{room_type}/img_{index}_{hash}.jpg
-```
-
-## Invite sistem
-
-Stanodavac kreira ugovor → sistem generiše invite kod (format: RS- + 6 alfanumeričkih karaktera). Charset bez sličnih karaktera (nema 0/O, 1/I/L): ABCDEFGHJKMNPQRSTUVWXYZ23456789.
-
-Invite link: rentsmart://invite/RS-A7X2K9
-
-Endpoint GET /contracts/invite/:code je javno dostupan (bez auth-a) — stanar pregleda uslove pre prihvatanja.
-
-## Konvencije za kod
-
-- Jezik komentara u kodu: engleski
-- TypeScript strict mode — ne koristiti any osim za sirovi LLM response gde koristi unknown pa type guard
-- ES module sintaksa: import/export, ne require()
-- tsconfig.json sa "module": "commonjs" za kompatibilnost sa Node.js ekosistemom
-- Async/await svuda, nikad callback-ovi
-- Svaki servis exportuje tipizirane funkcije ili klasu
-- Route fajlovi ne sadrže biznis logiku — delegiraju na servise
-- Greške se bacaju sa throw new Error() i hvataju u asyncHandler
-- UUID za sve ID-jeve (gen_random_uuid() u bazi, uuid paket u kodu)
-- Decimalni iznosi (EUR) se čuvaju kao DECIMAL(10,2) u bazi, a u TypeScript-u kao number
-- Svi timestampovi su TIMESTAMPTZ (UTC) u bazi, Date ili ISO string u kodu
-- Tipovi za DB rezultate: uvek prosleđuj generički tip u db.query<T>()
-- Tipovi se ne dupliraju — svi žive u src/types/index.ts
-
-## Česte greške koje treba izbegavati
-
-1. Ne menjaj status ugovora bez validacije. Uvek koristi validateTransition() pre UPDATE-a.
-2. Ne zaboravi audit event. Svaka promena statusa mora imati odgovarajući audit log.
-3. Ne šalji sve slike u jedan LLM poziv. Parovi po prostoriji — inače hit-uješ token limit.
-4. Ne veruj LLM output-u. Uvek parsiraj, validiraj severity enum, clamp-uj confidence na 0-1.
-5. Ne stavljaj lične podatke na Solanu. Samo hash-evi, iznosi, wallet adrese.
-6. Ne koristi Supabase JS klijent za SQL upite. Koristi pg Pool direktno — brže i fleksibilnije.
-7. Ne zaboravi ON DELETE CASCADE relacije. Brisanje ugovora mora da obriše slike, analize, settlement, audit.
-8. Ne koristi any. Definiši tip ili koristi unknown pa type guard. Izuzetak: JSON.parse() rezultat — koristi unknown pa validiraj.
-9. Ne zaboravi @types/* pakete. @types/express, @types/pg, @types/multer, @types/uuid itd.
-10. Ne miksuj import i require. Koristi import svuda. esModuleInterop: true u tsconfig-u omogućava import CommonJS modula.
-
-## Testiranje
+## Testing (manual)
 
 ```bash
 # Health check
 curl http://localhost:3000/health
 
-# Kreiranje ugovora (mock auth)
+# Create contract (mock auth)
 curl -X POST http://localhost:3000/api/v1/contracts \
   -H "X-Mock-User: landlord_marko" \
   -H "Content-Type: application/json" \
   -d '{"property_address":"Test 1","rent_monthly_eur":400,"deposit_amount_eur":800,"start_date":"2026-04-01","end_date":"2027-04-01","rooms":[{"room_type":"kuhinja","is_mandatory":true}]}'
 
-# Lista ugovora
+# List contracts
 curl http://localhost:3000/api/v1/contracts \
   -H "X-Mock-User: landlord_marko"
-
-# Rule engine test
-npx tsx -e "
-  import { calculateSettlement } from './src/services/ruleEngine';
-  console.log(JSON.stringify(calculateSettlement(800, [
-    {room:'kupatilo', findings:[
-      {item:'ogledalo', description:'Puklo', severity:'major', confidence:0.93, wear_and_tear:false, location_in_image:'gore'}
-    ], summary:'Puklo.', overall_condition:'damaged'},
-    {room:'dnevna_soba', findings:[
-      {item:'parket', description:'Ogrebotina', severity:'minor', confidence:0.85, wear_and_tear:false, location_in_image:'dole'},
-      {item:'zid', description:'Izbledelo', severity:'minor', confidence:0.72, wear_and_tear:true, location_in_image:'centar'}
-    ], summary:'Ogrebotina+habanje.', overall_condition:'good'}
-  ]), null, 2));
-"
-# Očekivano: tenant=616€, landlord=184€, automatic, zid preskočen (wear&tear)
 ```
 
 ## Deploy (Railway)
 
-```bash
-# Opcija 1: GitHub integracija (preporučeno)
-# Poveži GitHub repo u Railway dashboard → automatski deploy na push
-
-# Opcija 2: CLI
-npm install -g @railway/cli
-railway login
-railway init
-railway up
-```
-
-Railway koristi package.json scripts. Env varijable se dodaju u Railway dashboard.
-
-Build komanda: npm run build (tsc kompajlira u dist/)
-Start komanda: node dist/index.js
+Build: `npm run build` (tsc → dist/)
+Start: `node dist/index.js`
+Env vars in Railway dashboard. Auto-deploy on GitHub push.

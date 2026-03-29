@@ -26,7 +26,9 @@ RentSmart je mobilna aplikacija koja rešava problem poverenja i transparentnost
 | Rule engine | Fiksne vrednosti (3% / 10% / 25%) | Deterministički, bez ambiguiteta |
 | Auth | Phone + SMS OTP (Firebase Auth) | Realan auth za demo, mock fallback |
 | Offline | Zahteva internet | Pojednostavljuje MVP |
-| Smart contract | State machine + Solidity testnet (bonus) | State machine primarno, testnet ako vreme dozvoli |
+| Smart contract | State machine + Solana Devnet (Anchor) | State machine primarno, Solana PDA za escrow i hash zapis |
+| Validacija inputa | Zod (runtime type-safe) | Runtime validacija + generisanje TypeScript tipova iz šema |
+| Backend struktura | Domain modules (modularni) | Svaki domen (auth, contracts, inspections, analysis, audit, blockchain) je izolovani modul sa routes/service/schema |
 | Kompresija slika | Preporučen resize na 1920px | Nije obavezan za MVP, ali sprečava storage overflow |
 
 ---
@@ -35,58 +37,130 @@ RentSmart je mobilna aplikacija koja rešava problem poverenja i transparentnost
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                  MOBILNA APLIKACIJA                       │
-│               React Native (Expo)                         │
-│                                                           │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────┐ │
-│  │ Auth     │ │ Kreiranje│ │ Kamera   │ │ Settlement  │ │
-│  │ (Phone   │ │ Ugovora  │ │ (Check-  │ │ + Audit     │ │
-│  │  OTP)    │ │ + Sažetak│ │ in/out)  │ │ Trail       │ │
-│  └──────────┘ └──────────┘ └──────────┘ └─────────────┘ │
+│                  MOBILNA APLIKACIJA                      │
+│               React Native (Expo)                        │
+│                                                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────┐  │
+│  │ Auth     │ │ Kreiranje│ │ Kamera   │ │ Settlement  │  │
+│  │ (Phone   │ │ Ugovora  │ │ (Check-  │ │ + Audit     │  │
+│  │  OTP)    │ │ + Sažetak│ │ in/out)  │ │ Trail       │  │
+│  └──────────┘ └──────────┘ └──────────┘ └─────────────┘  │
 │  ┌──────────────────────────────────────────────────────┐│
 │  │  expo-camera + expo-location + expo-image-manipulator││
 │  └──────────────────────────────────────────────────────┘│
 └────────────────────────┬─────────────────────────────────┘
                          │ REST API (HTTPS)
 ┌────────────────────────▼─────────────────────────────────┐
-│                      BACKEND                              │
-│                 Node.js (Express)                          │
-│                                                           │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐│
-│  │ Auth     │ │ Contract │ │ Image    │ │ Invite       ││
-│  │ Middle-  │ │ Manager  │ │ Service  │ │ Service      ││
-│  │ ware     │ │ + State  │ │ + Meta-  │ │ (link/kod)   ││
-│  │ (Firebase│ │ Machine  │ │ data     │ │              ││
-│  │  verify) │ │          │ │ Validator│ │              ││
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘│
-│  ┌──────────┐ ┌──────────┐ ┌──────────────────────────┐ │
-│  │ LLM      │ │ Rule     │ │ Audit Trail Logger       │ │
-│  │ Service  │ │ Engine   │ │ (svaki event → DB zapis   │ │
-│  │ (Gemini) │ │ (odluka) │ │  sa hash chain-om)        │ │
-│  └──────────┘ └──────────┘ └──────────────────────────┘ │
+│                  BACKEND — Node.js (Express)             │
+│                  TypeScript (strict mode)                │
+│                                                          │
 │  ┌──────────────────────────────────────────────────────┐│
-│  │ Smart Contract Service                               ││
-│  │ (State Machine + opcioni Solidity/Sepolia adapter)   ││
+│  │ shared/middleware: auth · errorHandler · validate(Zod)││
 │  └──────────────────────────────────────────────────────┘│
-└───────┬────────────────┬───────────────┬─────────────────┘
+│                                                          │
+│  ┌─────────────── Domain Modules ──────────────────────┐ │
+│  │                                                     │ │
+│  │  ┌──────────┐ ┌────────────┐ ┌─────────────┐        │ │
+│  │  │  auth    │ │ contracts  │ │ inspections │        │ │
+│  │  │ routes   │ │ routes     │ │ routes      │        │ │
+│  │  │ service  │ │ service    │ │ service     │        │ │
+│  │  │ schema   │ │ schema     │ │ schema      │        │ │
+│  │  │          │ │ stateMach. │ │ imageService│        │ │
+│  │  │          │ │ invite     │ │ metaValid.  │        │ │
+│  │  └──────────┘ └────────────┘ └─────────────┘        │ │
+│  │                                                     │ │
+│  │  ┌──────────┐ ┌────────────┐ ┌─────────────┐        │ │
+│  │  │ analysis │ │   audit    │ │ blockchain  │        │ │
+│  │  │ routes   │ │ routes     │ │ routes      │        │ │
+│  │  │ service  │ │ service    │ │ solanaServ. │        │ │
+│  │  │ llmServ. │ │ (hash      │ │ (Anchor     │        │ │
+│  │  │ ruleEng. │ │  chain)    │ │  client)    │        │ │
+│  │  │ schema   │ │            │ │             │        │ │
+│  │  └──────────┘ └────────────┘ └─────────────┘        │ │
+│  └─────────────────────────────────────────────────────┘ │
+│                                                          │
+│  ┌─────────────────────────────────────────────────────┐ │
+│  │ shared: types · db/client · utils (hash, geo, errors)│ │
+│  │ config: env.ts (Zod-validated environment)           │ │
+│  └──────────────────────────────────────────────────────┘ │
+└───────┬────────────────┬───────────────┬───────────-──────┘
         │                │               │
    ┌────▼────────┐  ┌────▼────────┐  ┌───▼────────────┐
-   │  Supabase    │  │  Supabase   │  │ Google Gemini  │
-   │  PostgreSQL  │  │  Storage    │  │ Pro Vision API │
-   │  (ugovori,   │  │  (slike     │  │                │
-   │   audit,     │  │   + EXIF    │  │                │
-   │   korisnici) │  │   metadata) │  │                │
+   │  Supabase   │  │  Supabase   │  │ Google Gemini  │
+   │  PostgreSQL │  │  Storage    │  │ Pro Vision API │
+   │  (pg Pool)  │  │  (slike)    │  │                │
    └─────────────┘  └─────────────┘  └────────────────┘
         │
-   ┌────▼────────┐  (OPCIONO — bonus za demo)
-   │  Sepolia     │
-   │  Testnet     │
-   │  (Solidity   │
-   │   contract)  │
+   ┌────▼────────┐
+   │  Solana     │
+   │  Devnet     │
+   │  (Anchor    │
+   │   program)  │
    └─────────────┘
 ```
 
 ---
+### 2.1 Backend struktura (domain modules)
+
+\`\`\`
+src/
+├── index.ts                    # Entry: import app, listen on PORT
+├── app.ts                      # Express setup: middleware, mount module routers
+├── modules/
+│   ├── auth/
+│   │   ├── auth.routes.ts
+│   │   ├── auth.service.ts
+│   │   └── auth.schema.ts      # Zod validacija
+│   ├── contracts/
+│   │   ├── contracts.routes.ts
+│   │   ├── contracts.service.ts
+│   │   ├── contracts.schema.ts
+│   │   ├── stateMachine.ts     # STATE_TRANSITIONS + TRANSITION_ACTORS
+│   │   └── inviteService.ts
+│   ├── inspections/
+│   │   ├── inspections.routes.ts
+│   │   ├── inspections.service.ts
+│   │   ├── inspections.schema.ts
+│   │   ├── imageService.ts     # Supabase Storage upload/download
+│   │   └── metadataValidator.ts # GPS, timestamp, device validacija
+│   ├── analysis/
+│   │   ├── analysis.routes.ts
+│   │   ├── analysis.service.ts  # Orchestrator: images → LLM → rule engine → save
+│   │   ├── llmService.ts       # Gemini Vision API + mock
+│   │   ├── ruleEngine.ts       # Deterministička raspodela (čista funkcija)
+│   │   └── analysis.schema.ts
+│   ├── audit/
+│   │   ├── audit.routes.ts
+│   │   └── audit.service.ts    # Hash chain logger + verifikacija
+│   └── blockchain/
+│       ├── blockchain.routes.ts
+│       └── solana.service.ts   # Anchor klijent za Solana program
+├── shared/
+│   ├── types/
+│   │   ├── index.ts            # SVI domenski tipovi — jedan source of truth
+│   │   └── express.d.ts        # Augment Request sa user: User
+│   ├── middleware/
+│   │   ├── auth.ts             # Firebase verify + mock auth
+│   │   ├── errorHandler.ts     # asyncHandler + centralni error handler
+│   │   └── validate.ts         # zodMiddleware(schema)
+│   ├── db/
+│   │   ├── client.ts           # pg Pool (SQL) + Supabase client (Storage)
+│   │   └── migrations/
+│   │       └── 001_initial.sql
+│   └── utils/
+│       ├── hash.ts             # SHA-256 helperi
+│       ├── geo.ts              # Haversine distance
+│       └── errors.ts           # AppError klasa sa statusCode
+└── config/
+└── env.ts                  # Zod šema za SVE env varijable
+\`\`\`
+
+**Pravila modularnosti:**
+- Svaki modul ima: routes (HTTP layer), service (biznis logika), schema (Zod validacija)
+- Routes NIKAD ne sadrže biznis logiku — delegiraju na service
+- Dozvoljene zavisnosti: auth→shared, contracts→shared+audit, inspections→shared+audit+contracts, analysis→shared+audit+contracts+inspections, audit→shared, blockchain→shared
+- NIKAD cirkularne zavisnosti
+- SVI tipovi žive u shared/types/index.ts — nikad definisati tipove u modulu
 
 ## 3. Baza podataka — PostgreSQL Schema
 
@@ -94,13 +168,14 @@ RentSmart je mobilna aplikacija koja rešava problem poverenja i transparentnost
 
 ```sql
 CREATE TABLE users (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  phone         VARCHAR(20) UNIQUE NOT NULL,
-  display_name  VARCHAR(100) NOT NULL,
-  firebase_uid  VARCHAR(128) UNIQUE NOT NULL,
-  device_id     VARCHAR(255),
-  created_at    TIMESTAMPTZ DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ DEFAULT NOW()
+   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   phone         VARCHAR(20) UNIQUE NOT NULL,
+   display_name  VARCHAR(100) NOT NULL,
+   firebase_uid  VARCHAR(128) UNIQUE NOT NULL,
+   device_id     VARCHAR(255),
+   solana_pubkey VARCHAR(44),                          -- Solana wallet adresa (opciono)
+   created_at    TIMESTAMPTZ DEFAULT NOW(),
+   updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_users_phone ON users(phone);
@@ -154,6 +229,8 @@ CREATE TABLE contracts (
   deposit_status        deposit_status DEFAULT 'pending',
   contract_hash         VARCHAR(64),                          -- SHA-256 svih uslova
   rejection_comment     TEXT,                                 -- komentar pri odbijanju slika
+  solana_pda            VARCHAR(44),                          -- Solana PDA adresa
+  solana_tx_init        VARCHAR(88),                          -- TX potpis inicijalizacije
   created_at            TIMESTAMPTZ DEFAULT NOW(),
   updated_at            TIMESTAMPTZ DEFAULT NOW()
 );
@@ -421,6 +498,19 @@ Base URL: `https://<backend-host>/api/v1`
 
 Svi endpoint-i osim `/auth/*` zahtevaju `Authorization: Bearer <firebase_id_token>` header.
 
+Svi endpoint-i koji primaju request body koriste Zod validaciju (runtime type-safe).
+Validacija se primenjuje kroz `zodMiddleware(schema)` u route chain-u.
+Ako validacija ne prođe, vraća se 400 sa detaljnim opisom grešaka:
+
+\`\`\`json
+{
+"error": "Validation failed",
+"details": {
+"property_address": ["Required"],
+"deposit_amount_eur": ["Number must be greater than 0"]
+}
+}
+\`\`\`
 ### 5.1 Auth
 
 | Method | Endpoint | Opis | Body |
@@ -590,7 +680,29 @@ function validateImageMetadata(contractGps, imageMetadata) {
   "chain_valid": true
 }
 ```
+### 5.6 Blockchain verifikacija
 
+| Method | Endpoint | Opis |
+|--------|----------|------|
+| GET | `/contracts/:id/blockchain` | Provera on-chain zapisa (Solana PDA) |
+
+**GET `/contracts/:id/blockchain`** — Response:
+\`\`\` json
+{
+"on_chain": true,
+"agreement": {
+"contract_hash": "a1b2c3...",
+"landlord": "7xKX...pubkey",
+"tenant": "3yMN...pubkey",
+"deposit_lamports": 4000000,
+"status": 1,
+"checkin_image_hash": "d4e5f6...",
+"checkout_image_hash": "000000...",
+"settlement_hash": "000000..."
+},
+"explorer_url": "https://explorer.solana.com/address/...?cluster=devnet"
+}
+\`\`\`
 ---
 
 ## 6. Auth & Invite Flow
@@ -1228,159 +1340,204 @@ async function verifyAuditChain(contractId) {
 
 ---
 
-## 11. Smart Contract — Dual implementacija
+## 11. Smart Contract — Solana (Anchor framework)
 
-### 11.1 Opcija A: Backend State Machine (primarno)
+### 11.1 Strategija
 
-State machine iz sekcije 4 je primarna implementacija. Svaka promena stanja:
-1. Validira da je tranzicija dozvoljena
-2. Validira da je akteru dozvoljeno da pokrene tranziciju
-3. Hash-ira novo stanje
-4. Loguje audit event sa hash chain-om
-5. Ažurira contract status u PostgreSQL
+Solana se koristi za tri stvari:
+1. **Nepromenljiv zapis** — hash ugovora, slika i settlement-a na chain-u
+2. **Escrow depozita** — SOL zaključan u PDA (Program Derived Address)
+3. **Automatska raspodela** — pri finalizaciji, PDA otpušta sredstva prema settlement procentima
 
-```javascript
-async function transitionState(contractId, newStatus, actorId, actorRole, additionalData = {}) {
-  const contract = await getContract(contractId);
-  const allowed = STATE_TRANSITIONS[contract.status];
+Backend State Machine iz sekcije 4 ostaje PRIMARNI mehanizam upravljanja stanjima.
+Solana je DODATNI verifikacioni layer. Ako Solana poziv ne uspe, backend nastavlja sa radom (graceful degradation).
 
-  if (!allowed || !allowed.includes(newStatus)) {
-    throw new Error(`Invalid transition: ${contract.status} → ${newStatus}`);
-  }
+### 11.2 Kada se Solana poziva (5 momenata)
 
-  const transitionKey = `${contract.status} → ${newStatus}`;
-  const requiredActor = TRANSITION_ACTORS[transitionKey];
+| Momenat | Solana instrukcija | Kad se poziva | Šta se čuva |
+|---------|-------------------|---------------|-------------|
+| Kreiranje ugovora | `initialize()` | POST /contracts | Hash ugovora, iznos depozita |
+| Stanar prihvata | `lock_deposit()` | POST /contracts/:id/accept | Stanar šalje SOL u PDA |
+| Check-in odobren | `record_checkin()` | POST /checkin/approve | Hash svih check-in slika |
+| Check-out odobren | `record_checkout()` | POST /checkout/approve | Hash svih check-out slika |
+| Finalizacija | `execute_settlement()` | POST /finalize | Hash settlement-a, raspodela escrow-a |
 
-  if (requiredActor !== 'system' && requiredActor !== 'both' && requiredActor !== actorRole) {
-    throw new Error(`Actor ${actorRole} cannot trigger: ${transitionKey}`);
-  }
+Sve između (odbijanja, ponovna slikanja, LLM analiza, rule engine) je OFF-CHAIN.
 
-  // Ažuriraj status
-  await db.query(
-    'UPDATE contracts SET status = $1, updated_at = NOW() WHERE id = $2',
-    [newStatus, contractId]
-  );
+### 11.3 PDA (Program Derived Address)
 
-  // Audit event
-  await logAuditEvent(contractId, statusToEventType(newStatus), actorId, actorRole, {
-    from_status: contract.status,
-    to_status: newStatus,
-    ...additionalData
-  });
+PDA seed: `["rental", contract_id_as_bytes]`
 
-  return { from: contract.status, to: newStatus };
-}
-```
+PDA je deterministic — isti contract_id uvek daje istu adresu. Nema privatni ključ — samo program može da potpiše transakcije za taj PDA.
 
-### 11.2 Opcija B: Solidity na Sepolia (bonus)
+### 11.4 Anchor program (Rust)
 
-Ako vreme dozvoli, deploy-uje se minimalni Solidity contract koji čuva hash-eve i status.
+\`\`\`rust
+use anchor_lang::prelude::*;
 
-```solidity
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+declare_id!("PROGRAM_ID_OVDE");
 
-contract RentSmartEscrow {
-    enum Status { Draft, Active, PendingCheckout, Settlement, Completed }
+#[program]
+pub mod rentsmart {
+use super::*;
 
-    struct RentalContract {
-        bytes32 contractHash;      // SHA-256 uslova ugovora
-        address landlord;
-        address tenant;
-        uint256 depositAmount;
-        Status status;
-        bytes32 checkinImageHash;  // hash svih check-in slika
-        bytes32 checkoutImageHash; // hash svih check-out slika
-        bytes32 settlementHash;    // hash settlement rezultata
-        uint256 createdAt;
+    pub fn initialize(
+        ctx: Context<Initialize>,
+        contract_hash: [u8; 32],
+        deposit_lamports: u64,
+    ) -> Result<()> {
+        let agreement = &mut ctx.accounts.agreement;
+        agreement.contract_hash = contract_hash;
+        agreement.landlord = ctx.accounts.landlord.key();
+        agreement.deposit_lamports = deposit_lamports;
+        agreement.status = Status::Draft as u8;
+        agreement.created_at = Clock::get()?.unix_timestamp;
+        agreement.bump = ctx.bumps.agreement;
+        Ok(())
     }
 
-    mapping(string => RentalContract) public contracts;
+    pub fn lock_deposit(ctx: Context<LockDeposit>) -> Result<()> {
+        let agreement = &mut ctx.accounts.agreement;
+        require!(agreement.status == Status::Draft as u8, ErrorCode::InvalidStatus);
 
-    event ContractCreated(string contractId, bytes32 contractHash, uint256 timestamp);
-    event DepositLocked(string contractId, uint256 amount, uint256 timestamp);
-    event CheckinRecorded(string contractId, bytes32 imageHash, uint256 timestamp);
-    event CheckoutRecorded(string contractId, bytes32 imageHash, uint256 timestamp);
-    event SettlementRecorded(string contractId, bytes32 settlementHash, uint256 timestamp);
-    event DepositReleased(string contractId, uint256 tenantAmount, uint256 landlordAmount, uint256 timestamp);
+        // Transfer SOL from tenant to PDA
+        let ix = anchor_lang::solana_program::system_instruction::transfer(
+            &ctx.accounts.tenant.key(),
+            &ctx.accounts.agreement.key(),
+            agreement.deposit_lamports,
+        );
+        anchor_lang::solana_program::program::invoke(
+            &ix,
+            &[
+                ctx.accounts.tenant.to_account_info(),
+                ctx.accounts.agreement.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+        )?;
 
-    function createContract(
-        string memory _contractId,
-        bytes32 _contractHash,
-        address _tenant,
-        uint256 _depositAmount
-    ) external {
-        contracts[_contractId] = RentalContract({
-            contractHash: _contractHash,
-            landlord: msg.sender,
-            tenant: _tenant,
-            depositAmount: _depositAmount,
-            status: Status.Draft,
-            checkinImageHash: bytes32(0),
-            checkoutImageHash: bytes32(0),
-            settlementHash: bytes32(0),
-            createdAt: block.timestamp
-        });
-
-        emit ContractCreated(_contractId, _contractHash, block.timestamp);
+        agreement.tenant = ctx.accounts.tenant.key();
+        agreement.status = Status::Active as u8;
+        Ok(())
     }
 
-    function recordCheckin(string memory _contractId, bytes32 _imageHash) external {
-        RentalContract storage c = contracts[_contractId];
-        require(msg.sender == c.landlord, "Only landlord");
-        c.checkinImageHash = _imageHash;
-        c.status = Status.Active;
-        emit CheckinRecorded(_contractId, _imageHash, block.timestamp);
+    pub fn record_checkin(
+        ctx: Context<RecordCheckin>,
+        image_hash: [u8; 32],
+    ) -> Result<()> {
+        let agreement = &mut ctx.accounts.agreement;
+        require!(ctx.accounts.landlord.key() == agreement.landlord, ErrorCode::Unauthorized);
+        agreement.checkin_image_hash = image_hash;
+        Ok(())
     }
 
-    function recordCheckout(string memory _contractId, bytes32 _imageHash) external {
-        RentalContract storage c = contracts[_contractId];
-        require(msg.sender == c.tenant, "Only tenant");
-        c.checkoutImageHash = _imageHash;
-        c.status = Status.PendingCheckout;
-        emit CheckoutRecorded(_contractId, _imageHash, block.timestamp);
+    pub fn record_checkout(
+        ctx: Context<RecordCheckout>,
+        image_hash: [u8; 32],
+    ) -> Result<()> {
+        let agreement = &mut ctx.accounts.agreement;
+        require!(ctx.accounts.tenant.key() == agreement.tenant, ErrorCode::Unauthorized);
+        agreement.checkout_image_hash = image_hash;
+        agreement.status = Status::PendingSettlement as u8;
+        Ok(())
     }
 
-    function recordSettlement(
-        string memory _contractId,
-        bytes32 _settlementHash,
-        uint256 _tenantAmount,
-        uint256 _landlordAmount
-    ) external {
-        RentalContract storage c = contracts[_contractId];
-        c.settlementHash = _settlementHash;
-        c.status = Status.Completed;
-        emit SettlementRecorded(_contractId, _settlementHash, block.timestamp);
-        emit DepositReleased(_contractId, _tenantAmount, _landlordAmount, block.timestamp);
+    pub fn execute_settlement(
+        ctx: Context<ExecuteSettlement>,
+        settlement_hash: [u8; 32],
+        tenant_amount: u64,
+        landlord_amount: u64,
+    ) -> Result<()> {
+        let agreement = &mut ctx.accounts.agreement;
+        agreement.settlement_hash = settlement_hash;
+        agreement.status = Status::Completed as u8;
+
+        // Transfer SOL from PDA to tenant and landlord
+        // (implementacija koristi PDA signer seeds za potpisivanje)
+
+        Ok(())
     }
 }
-```
 
-**Backend integracija sa ethers.js:**
-```javascript
-const { ethers } = require('ethers');
-
-// Samo ako je BLOCKCHAIN_ENABLED=true
-async function recordOnChain(contractId, eventType, dataHash) {
-  if (process.env.BLOCKCHAIN_ENABLED !== 'true') return null;
-
-  const provider = new ethers.JsonRpcProvider(process.env.SEPOLIA_RPC_URL);
-  const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-  const contract = new ethers.Contract(process.env.CONTRACT_ADDRESS, ABI, wallet);
-
-  const tx = await contract[eventType](contractId, dataHash);
-  const receipt = await tx.wait();
-
-  return {
-    tx_hash: receipt.hash,
-    block_number: receipt.blockNumber,
-    gas_used: receipt.gasUsed.toString()
-  };
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+Draft = 0,
+Active = 1,
+PendingSettlement = 2,
+Completed = 3,
 }
-```
 
----
+#[account]
+pub struct RentalAgreement {
+pub contract_hash: [u8; 32],
+pub landlord: Pubkey,
+pub tenant: Pubkey,
+pub deposit_lamports: u64,
+pub status: u8,
+pub checkin_image_hash: [u8; 32],
+pub checkout_image_hash: [u8; 32],
+pub settlement_hash: [u8; 32],
+pub created_at: i64,
+pub bump: u8,
+}
+\`\`\`
 
+### 11.5 Backend integracija (TypeScript — Anchor klijent)
+
+\`\`\`typescript
+import { Connection, PublicKey, Keypair } from '@solana/web3.js';
+import { AnchorProvider, Program, BN } from '@coral-xyz/anchor';
+
+export class SolanaService {
+private connection: Connection;
+private authority: Keypair;
+private program: Program;
+
+findPDA(contractId: string): { pda: PublicKey; bump: number } {
+return PublicKey.findProgramAddressSync(
+[Buffer.from('rental'), Buffer.from(contractId)],
+this.program.programId
+);
+}
+
+async initializeContract(contractId: string, contractHash: string, depositEur: number): Promise<{
+tx_signature: string;
+pda_address: string;
+explorer_url: string;
+}> {
+const { pda } = this.findPDA(contractId);
+const depositLamports = this.eurToLamports(depositEur);
+
+    const tx = await this.program.methods
+      .initialize(Buffer.from(contractHash, 'hex'), new BN(depositLamports))
+      .accounts({ agreement: pda, landlord: this.authority.publicKey })
+      .rpc();
+
+    return {
+      tx_signature: tx,
+      pda_address: pda.toBase58(),
+      explorer_url: `https://explorer.solana.com/tx/${tx}?cluster=devnet`,
+    };
+}
+
+// recordCheckin, recordCheckout, executeSettlement — isti pattern
+// Svaki je wrappovan u try/catch sa console.warn na failure
+}
+\`\`\`
+
+**Pozivanje iz ostalih servisa — uvek sa try/catch:**
+\`\`\`typescript
+try {
+const solana = new SolanaService();
+const result = await solana.initializeContract(contract.id, contractHash, depositEur);
+await db.query(
+'UPDATE contracts SET solana_pda = $1, solana_tx_init = $2 WHERE id = $3',
+[result.pda_address, result.tx_signature, contract.id]
+);
+} catch (err) {
+console.warn(`Solana failed for contract ${contract.id}:`, err);
+// Nastavlja se — Solana je opcioni layer
+}
+\`\`\`
 ## 12. Mobilna aplikacija — Ekrani i navigacija
 
 ### 12.1 Navigacija (expo-router)
@@ -1459,7 +1616,7 @@ app/
 |-------|-------|-------|
 | **Osoba A** | Frontend (React Native) | Expo, ekrani, kamera, UX |
 | **Osoba B** | Backend (Node.js) | API, baza, state machine, audit trail |
-| **Osoba C** | AI / Blockchain | LLM integracija, rule engine, Solidity |
+| **Osoba C** | AI / Blockchain | LLM integracija, rule engine, Solana Anchor |
 
 ---
 
@@ -1496,7 +1653,9 @@ app/
 - [ ] Rule engine: calculateSettlement() (sekcija 9.2)
 - [ ] Unit testovi za rule engine edge cases (sekcija 9.3)
 - [ ] Plain language sažetak generator (template-based)
-
+- [ ] Solana: Anchor project setup (`anchor init rentsmart`)
+- [ ] Solana: RentalAgreement account struct + initialize instrukcija
+- 
 **Deliverable Dana 1:** Kreiranje ugovora + invite kod + auth + LLM test + rule engine.
 
 ---
@@ -1560,10 +1719,10 @@ app/
 - [ ] Testiranje kompletnog flow-a end-to-end
 
 **Osoba C (AI/Blockchain):**
-- [ ] Solidity contract na Sepolia (iz sekcije 11.2)
-- [ ] Deploy script + contract verification
-- [ ] ethers.js integracija u backend (opcioni layer)
-- [ ] recordOnChain() za ključne evente
+- [ ] Anchor program: lock_deposit, record_checkin, record_checkout, execute_settlement
+- [ ] Deploy na Solana Devnet (`anchor deploy --provider.cluster devnet`)
+- [ ] @coral-xyz/anchor klijent u backend (SolanaService klasa)
+- [ ] Integracija: initializeContract() + recordCheckin() sa try/catch
 - [ ] Fino podešavanje LLM prompta
 - [ ] Testiranje edge cases: sve OK / sve major / mix
 
@@ -1590,10 +1749,12 @@ app/
 - [ ] Health check endpoint
 - [ ] CORS konfiguacija za produkciju
 - [ ] Deploy na Railway/Render/Fly.io
+- [ ] Zod šeme za sve preostale endpoint-e (ako nisu završene)
+- [ ] Provera dependency pravila između modula (nema cirkularnih importa)
 
 **Osoba C (AI/Blockchain):**
-- [ ] Testnet demo podaci (kreiraj ugovor na chain-u)
-- [ ] Blockchain explorer link generisanje (Sepolia Etherscan)
+- [ ] Devnet demo podaci (kreiraj ugovor na chain-u, zaključaj escrow)
+- [ ] Solana Explorer link generisanje (Devnet)
 - [ ] LLM cost tracking (tokens, USD)
 - [ ] Fallback mehanizam: ako Gemini padne → mock response
 - [ ] Dokumentacija API-ja za tim
@@ -1637,11 +1798,10 @@ FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxx@rentsmart-xxx.iam.gserviceaccount.co
 # Gemini
 GEMINI_API_KEY=AIzaSy...
 
-# Blockchain (opciono)
-BLOCKCHAIN_ENABLED=false
-SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/xxx
-PRIVATE_KEY=0x...
-CONTRACT_ADDRESS=0x...
+# Solana (opciono — graceful degradation ako nije konfigurisano)
+SOLANA_RPC_URL=https://api.devnet.solana.com
+SOLANA_AUTHORITY_KEYPAIR=[byte array JSON]
+SOLANA_PROGRAM_ID=<program public key>
 
 # App
 NODE_ENV=production
@@ -1664,7 +1824,8 @@ MOCK_LLM=false
 | GPS nedostupan u zatvorenom | Srednja | Srednji | Tolerancija ±500m za MVP | Osoba B |
 | Spor internet tokom demo-a | Srednja | Visok | Pre-uploadovane demo slike + screen recording | Svi |
 | Expo Go limitacije | Niska | Srednji | expo-camera i expo-location rade u Expo Go | Osoba A |
-| Solidity deploy ne uspe | Srednja | Nizak | Bonus feature — state machine je primarno | Osoba C |
+| Solana Anchor deploy ne uspe | Srednja | Nizak | Graceful degradation — backend nastavlja bez blockchain-a | Osoba C |
+| Anchor klijent verzija mismatch | Srednja | Srednji | Pinovati @coral-xyz/anchor verziju u package.json | Osoba C |
 | E2E flow puca na neočekivanom mestu | Visoka | Visok | Dan 5 je ceo posvećen testiranju | Svi |
 
 ---
