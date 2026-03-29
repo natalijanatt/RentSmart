@@ -1,0 +1,152 @@
+Streaming transaction logs mentioning B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX. Confirmed commitment
+Transaction executed in slot 3:
+  Signature: 4RxDhHA8H74WzXBWLniGv4wtGpRSRaETyDBHPCDXxvMK7Xhd7p9WNLZxbHRqc616cTvyAWjb2iscB85iwysDn3ax
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: Initialize
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 9268 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 4:
+  Signature: 4RxDhHA8H74WzXBWLniGv4wtGpRSRaETyDBHPCDXxvMK7Xhd7p9WNLZxbHRqc616cTvyAWjb2iscB85iwysDn3ax
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: Initialize
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 9268 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 5:
+  Signature: 59FvxUTKWYNY233pNLS7TyaLT6jJcTbpYA7Ltha5AWuqfe9vV5kz6m4PBMv7FsLgPtVincC8xcSPQ4SEqUhRkS7q
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: LockDeposit
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 5697 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 6:
+  Signature: 66ViAnb2baPsXCpNmw27Vk4AbtiL3AoTVe1X2PAX2ooVBLFxSFqxcUD7WijhsYTwXAeZN7HmxkEv8UKJ2JH1yTg9
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: RecordCheckin
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 3622 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 6:
+  Signature: 5frayzuy191wek8h84PctzPuGxVyezYRGCaVGDJY4Sjrw74KQBF4L1xbnWQP2cyFe1WfwoR3Gc2qqKvyLXBQNGJQ
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: RecordCheckout
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 3621 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 7:
+  Signature: 5frayzuy191wek8h84PctzPuGxVyezYRGCaVGDJY4Sjrw74KQBF4L1xbnWQP2cyFe1WfwoR3Gc2qqKvyLXBQNGJQ
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: RecordCheckout
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 3621 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 7:
+  Signature: 5vkio5Mic7SJHruhTS9FCrV1pGEXPt3g38ycJ4b4GGRmQpNhxCpQAs6kxeUp4L4xpChwTkVPhGygrCkaBaSnQYZh
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: ExecuteSettlement
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 4656 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 8:
+  Signature: 5vkio5Mic7SJHruhTS9FCrV1pGEXPt3g38ycJ4b4GGRmQpNhxCpQAs6kxeUp4L4xpChwTkVPhGygrCkaBaSnQYZh
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: ExecuteSettlement
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 4656 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 8:
+  Signature: 63e7FmkMtrxfZk4qazPkn8EKirSqRMq48BWGtjWudBeXZ95hVaazvUYmtSTzr2UyFqQrukoPPJ9tWGEpTPPWL111
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: Initialize
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 7768 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 9:
+  Signature: 63e7FmkMtrxfZk4qazPkn8EKirSqRMq48BWGtjWudBeXZ95hVaazvUYmtSTzr2UyFqQrukoPPJ9tWGEpTPPWL111
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: Initialize
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 7768 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 9:
+  Signature: 35WTDEm19CZCGvargrPFpT5tvkBHHVCiMjjV4s7fMyTRkpaHZEe2whFzAXkwLcSaUiBP1zwHXZSwz5EobC6WJpTi
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: LockDeposit
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 5697 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 10:
+  Signature: 35WTDEm19CZCGvargrPFpT5tvkBHHVCiMjjV4s7fMyTRkpaHZEe2whFzAXkwLcSaUiBP1zwHXZSwz5EobC6WJpTi
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: LockDeposit
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 5697 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 10:
+  Signature: 672Wh2QFHfy7z57FtAsiYAUJ8dpjBf6FiVfZDf71YfJfHhHbhw6ADbnKL6vcBUHDjXqwVxfffgAw8VTsd5VScxff
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: RecordCheckin
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 3622 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 11:
+  Signature: 672Wh2QFHfy7z57FtAsiYAUJ8dpjBf6FiVfZDf71YfJfHhHbhw6ADbnKL6vcBUHDjXqwVxfffgAw8VTsd5VScxff
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: RecordCheckin
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 3622 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 11:
+  Signature: 4DMhYbAsciKQq3ZJFdv3cjDWJ1DAcRqDgecr3HevS2oo7QZNwZH8MymiG1FKVm7jmXKiu2u7QKWwf3mVXZmqhaS1
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: RecordCheckout
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 3621 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 12:
+  Signature: 4DMhYbAsciKQq3ZJFdv3cjDWJ1DAcRqDgecr3HevS2oo7QZNwZH8MymiG1FKVm7jmXKiu2u7QKWwf3mVXZmqhaS1
+  Status: Ok
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: RecordCheckout
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 3621 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX success
+Transaction executed in slot 12:
+  Signature: zY3nsz2QZeru1jzU3YtywhdPmUg3rxnDvjhufe15NiGTKjab1wekG2tRhrjy8H6BgisHfCJus79ckz4XsjbKvbq
+  Status: Error processing Instruction 0: custom program error: 0x1771
+  Log Messages:
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX invoke [1]
+    Program log: Instruction: ExecuteSettlement
+    Program log: AnchorError thrown in programs/rentsmart/src/lib.rs:135. Error Code: SettlementMismatch. Error Number: 6001. Error Message: Settlement amounts do not equal the locked deposit.
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX consumed 5388 of 200000 compute units
+    Program B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX failed: custom program error: 0x1771

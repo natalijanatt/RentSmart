@@ -5,16 +5,16 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-rentsmart = "PROGRAM_ID_PLACEHOLDER"
+rentsmart = "B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX"
 
 [programs.devnet]
-rentsmart = "PROGRAM_ID_PLACEHOLDER"
+rentsmart = "B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

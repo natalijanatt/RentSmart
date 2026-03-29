@@ -43,7 +43,7 @@ export class SolanaService implements ISolanaService {
 
   findPDA(contractId: string): { pda: string; bump: number } {
     const [pda, bump] = PublicKey.findProgramAddressSync(
-      [Buffer.from('rental'), Buffer.from(contractId)],
+      [Buffer.from('rental'), Buffer.from(contractId).subarray(0, 32)],
       this.programId,
     );
     return { pda: pda.toBase58(), bump };
@@ -56,7 +56,7 @@ export class SolanaService implements ISolanaService {
     landlordPubkey: string,
   ): Promise<SolanaInitResult> {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('rental'), Buffer.from(contractId)],
+      [Buffer.from('rental'), Buffer.from(contractId).subarray(0, 32)],
       this.programId,
     );
 
@@ -87,7 +87,7 @@ export class SolanaService implements ISolanaService {
     tenantPubkey: string,
   ): Promise<{ serialized_tx: string }> {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('rental'), Buffer.from(contractId)],
+      [Buffer.from('rental'), Buffer.from(contractId).subarray(0, 32)],
       this.programId,
     );
 
@@ -116,7 +116,7 @@ export class SolanaService implements ISolanaService {
     _landlordPubkey: string,
   ): Promise<{ tx_signature: string }> {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('rental'), Buffer.from(contractId)],
+      [Buffer.from('rental'), Buffer.from(contractId).subarray(0, 32)],
       this.programId,
     );
 
@@ -140,7 +140,7 @@ export class SolanaService implements ISolanaService {
     _tenantPubkey: string,
   ): Promise<{ tx_signature: string }> {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('rental'), Buffer.from(contractId)],
+      [Buffer.from('rental'), Buffer.from(contractId).subarray(0, 32)],
       this.programId,
     );
 
@@ -167,7 +167,7 @@ export class SolanaService implements ISolanaService {
     landlordPubkey: string,
   ): Promise<SolanaSettlementResult> {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('rental'), Buffer.from(contractId)],
+      [Buffer.from('rental'), Buffer.from(contractId).subarray(0, 32)],
       this.programId,
     );
 
@@ -196,7 +196,7 @@ export class SolanaService implements ISolanaService {
 
   async getAgreement(contractId: string): Promise<SolanaAgreement | null> {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('rental'), Buffer.from(contractId)],
+      [Buffer.from('rental'), Buffer.from(contractId).subarray(0, 32)],
       this.programId,
     );
 

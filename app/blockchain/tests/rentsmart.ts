@@ -1,10 +1,14 @@
 import * as anchor from '@coral-xyz/anchor';
-import { Program, BN } from '@coral-xyz/anchor';
+import { Program } from '@coral-xyz/anchor';
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { expect } from 'chai';
 import crypto from 'crypto';
+import { createRequire } from 'node:module';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// require() is not available in ESM scope (Node 24 loads .ts natively as ESM)
+const require = createRequire(import.meta.url);
+// BN and IDL must come from CJS require — anchor.BN is not in the ESM namespace
+const { BN } = require('@coral-xyz/anchor') as typeof anchor;
 const IDL = require('../target/idl/rentsmart.json');
 
 describe('rentsmart', () => {
@@ -20,7 +24,8 @@ describe('rentsmart', () => {
   const landlord = Keypair.generate();
 
   const CONTRACT_ID = '550e8400-e29b-41d4-a716-446655440000'; // 36-char UUID
-  const contractIdBytes = Array.from(Buffer.from(CONTRACT_ID));
+  // Solana max seed length is 32 bytes — store/use first 32 bytes of the UUID string
+  const contractIdBytes = Array.from(Buffer.from(CONTRACT_ID).subarray(0, 32));
   const contractHash = Array.from(crypto.createHash('sha256').update('test contract json').digest());
   const depositLamports = new BN(0.5 * LAMPORTS_PER_SOL); // 0.5 SOL
 
@@ -29,8 +34,9 @@ describe('rentsmart', () => {
 
   before(async () => {
     // Derive PDA
+    // Solana max seed length is 32 bytes — use first 32 bytes of the 36-byte UUID string
     const [pda, b] = PublicKey.findProgramAddressSync(
-      [Buffer.from('rental'), Buffer.from(CONTRACT_ID)],
+      [Buffer.from('rental'), Buffer.from(CONTRACT_ID).subarray(0, 32)],
       program.programId,
     );
     agreementPDA = pda;
@@ -57,7 +63,7 @@ describe('rentsmart', () => {
 
     const account = await program.account.rentalAgreement.fetch(agreementPDA);
 
-    expect(Buffer.from(account.contractId as number[]).toString('utf8')).to.equal(CONTRACT_ID);
+    expect(Buffer.from(account.contractId as number[]).toString('utf8')).to.equal(CONTRACT_ID.slice(0, 32));
     expect(Buffer.from(account.contractHash as number[]).toString('hex')).to.equal(
       Buffer.from(contractHash).toString('hex'),
     );
@@ -176,13 +182,13 @@ describe('rentsmart', () => {
     // Need a fresh contract for this test — use a different contract ID
     const altId = '660e8400-e29b-41d4-a716-446655440001';
     const [altPDA] = PublicKey.findProgramAddressSync(
-      [Buffer.from('rental'), Buffer.from(altId)],
+      [Buffer.from('rental'), Buffer.from(altId).subarray(0, 32)],
       program.programId,
     );
 
     // Initialize and lock deposit on alt contract
     await program.methods
-      .initialize(Array.from(Buffer.from(altId)), contractHash, depositLamports)
+      .initialize(Array.from(Buffer.from(altId).subarray(0, 32)), contractHash, depositLamports)
       .accounts({
         agreement: altPDA,
         authority: authority.publicKey,
