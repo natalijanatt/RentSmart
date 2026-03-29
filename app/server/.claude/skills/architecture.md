@@ -28,11 +28,11 @@ src/
 │   │   └── metadataValidator.ts    # GPS proximity, timestamp drift, device consistency
 │   │
 │   ├── analysis/
-│   │   ├── analysis.routes.ts      # POST analyze, GET analysis, GET settlement, POST finalize
+│   │   ├── analysis.routes.ts      # POST analyze, GET analysis, GET settlement, POST settlement/approve
 │   │   ├── analysis.service.ts     # orchestrator: fetch images → LLM → rule engine → save
 │   │   ├── llmService.ts           # Gemini Vision: analyzeRoom(), parseResponse(), mock
 │   │   ├── ruleEngine.ts           # calculateSettlement() — pure function, zero deps
-│   │   └── analysis.schema.ts     # Zod: FinalizeBody
+│   │   └── analysis.schema.ts     # Zod schemas
 │   │
 │   ├── audit/
 │   │   ├── audit.routes.ts         # GET /contracts/:id/audit
@@ -117,10 +117,13 @@ RULE: Analysis depends on inspections (to fetch images) and contracts (to read d
    → contracts.stateMachine.validateTransition(pending_analysis → settlement)
    → audit.service.logAuditEvent(SETTLEMENT_PROPOSED)
 
-6. POST /contracts/:id/finalize
-   → contracts.stateMachine.validateTransition(settlement → completed)
-   → blockchain.solana.service.executeSettlement() [optional]
-   → audit.service.logAuditEvent(SETTLEMENT_FINALIZED)
+6. POST /contracts/:id/settlement/approve
+   → Record approval for current user (landlord or tenant)
+   → If both sides have now approved:
+     → contracts.stateMachine.validateTransition(settlement → completed)
+     → blockchain.solana.service.executeSettlement() [optional]
+     → audit.service.logAuditEvent(SETTLEMENT_APPROVED)
+     → audit.service.logAuditEvent(SETTLEMENT_FINALIZED)
 ```
 
 ## Request lifecycle

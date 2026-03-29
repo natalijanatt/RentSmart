@@ -78,7 +78,7 @@ export interface ISolanaService {
   ): Promise<{ tx_signature: string }>;
 
   /**
-   * Called on POST /contracts/:id/finalize.
+   * Called on POST /contracts/:id/settlement/approve (when second side approves).
    * Releases escrowed SOL to tenant and landlord per the rule engine settlement.
    */
   executeSettlement(

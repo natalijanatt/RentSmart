@@ -65,7 +65,7 @@ packages/
 ### Auth flow
 
 - Unauthenticated user sees `(auth)/login.tsx`.
-- If backend returns a user without `display_name`, continue to `(auth)/register.tsx`.
+- If the app does not yet have the user's display name after OTP confirmation, continue to `(auth)/register.tsx` before calling `/auth/verify`.
 - Root layout switches between auth group and main app based on auth store.
 
 ### Main app
@@ -117,7 +117,6 @@ POST   /contracts/:id/checkout/complete
 POST   /contracts/:id/checkout/approve
 POST   /contracts/:id/checkout/reject
 
-POST   /contracts/:id/analyze
 GET    /contracts/:id/analysis
 GET    /contracts/:id/settlement
 POST   /contracts/:id/settlement/approve
@@ -172,7 +171,8 @@ Important settlement rule:
 - User enters phone number.
 - Firebase sends OTP.
 - User confirms OTP.
-- App calls `POST /auth/verify` with Firebase token, display name if available, and device ID.
+- If needed, app collects `display_name` on `register.tsx`.
+- App calls `POST /auth/verify` with Firebase token, display name, and device ID.
 - App then uses Firebase token for future API calls.
 
 ### New contract
@@ -211,6 +211,7 @@ Important settlement rule:
 - If current user already approved, disable the CTA and show waiting state.
 - When both sides approve, refresh status to `completed`.
 - If `requires_manual_review` is true, show clear warning.
+- Mobile does not directly trigger `/contracts/:id/analyze`; analysis starts from backend orchestration after checkout approval.
 
 ### Audit
 

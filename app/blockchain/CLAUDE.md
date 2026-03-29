@@ -179,7 +179,7 @@ Svaki ugovor ima svoju Program Derived Account (PDA):
 seeds = ["rental", contract_id_as_bytes]
 ```
 
-- `contract_id` je UUID string (36 bajta ASCII), npr. `"550e8400-e29b-41d4-a716-446655440000"`
+- `contract_id` je UUID string bez crtica (32 ASCII karaktera), npr. `"550e8400e29b41d4a716446655440000"` — format zadovoljava Solana PDA seed limit od 32 bajta po seed-u
 - PDA nije vlastnik novca — ona JE escrow (SOL se deponuje direktno u PDA account)
 - Backend authority keypair potpisuje sve instrukcije osim `lock_deposit` (potpisuje stanar)
 
@@ -205,7 +205,7 @@ Svaka instrukcija provjera tačan state — ako state nije ispravan, vraća `Inv
 
 ```rust
 pub struct RentalAgreement {
-    pub contract_id: [u8; 32],      // UUID string
+    pub contract_id: [u8; 32],      // UUID bez crtica (32 ASCII karaktera)
     pub contract_hash: [u8; 32],    // SHA-256 ugovora
     pub deposit_lamports: u64,
     pub landlord: Pubkey,
@@ -307,7 +307,7 @@ const { serialized_tx } = await solana.buildLockDepositTx(
 // Pošalji serialized_tx mobilnoj aplikaciji — tenant potpisuje i broadcastuje
 
 // 3. Zapis check-in hasha (POST /contracts/:id/checkin/approve)
-const imageHash = SolanaService.hashImages(imageHashArray); // static helper
+const imageHash = solana.hashImages(imageHashArray);
 const { tx_signature } = await solana.recordCheckin(
   contractId,
   imageHash,
@@ -315,14 +315,14 @@ const { tx_signature } = await solana.recordCheckin(
 );
 
 // 4. Zapis check-out hasha (POST /contracts/:id/checkout/approve)
-const imageHash = SolanaService.hashImages(imageHashArray);
+const imageHash = solana.hashImages(imageHashArray);
 const { tx_signature } = await solana.recordCheckout(
   contractId,
   imageHash,
   tenantWallet,
 );
 
-// 5. Izvršavanje settlement-a (POST /contracts/:id/finalize)
+// 5. Izvršavanje settlement-a (POST /contracts/:id/settlement/approve — finalizacija)
 const settlementHash = crypto
   .createHash("sha256")
   .update(JSON.stringify(settlement))
