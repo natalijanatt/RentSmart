@@ -12,7 +12,8 @@
     "airdrop": "solana airdrop 2 --url devnet"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.30.1",
+    "dotenv": "^16.0.0",
+    "@coral-xyz/anchor": "^0.32.1",
     "@solana/web3.js": "^1.98.0"
   },
   "devDependencies": {
