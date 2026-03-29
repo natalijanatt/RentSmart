@@ -28,6 +28,8 @@ export interface SolanaAgreement {
   checkin_hash: string;         // hex string
   checkout_hash: string;        // hex string
   settlement_hash: string;      // hex string
+  created_at: number;           // Unix timestamp of contract initialization
+  explorer_url: string;         // Solana Explorer URL for the PDA account
 }
 
 export interface ISolanaService {

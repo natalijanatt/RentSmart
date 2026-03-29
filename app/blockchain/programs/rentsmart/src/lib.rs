@@ -41,6 +41,7 @@ pub mod rentsmart {
         agreement.checkin_hash = [0u8; 32];
         agreement.checkout_hash = [0u8; 32];
         agreement.settlement_hash = [0u8; 32];
+        agreement.created_at = Clock::get()?.unix_timestamp;
         agreement.bump = ctx.bumps.agreement;
         Ok(())
     }
@@ -261,7 +262,7 @@ pub struct ExecuteSettlement<'info> {
 
 #[account]
 pub struct RentalAgreement {
-    pub contract_id: [u8; 32],       // UUID string bytes (exactly 36 ASCII chars)
+    pub contract_id: [u8; 32],       // UUID string bytes (first 32 of 36 ASCII chars)
     pub contract_hash: [u8; 32],     // SHA-256 of contract JSON
     pub deposit_lamports: u64,       // Total deposit locked in this PDA
     pub landlord: Pubkey,            // Landlord's Solana wallet
@@ -270,14 +271,15 @@ pub struct RentalAgreement {
     pub checkin_hash: [u8; 32],      // SHA-256 of check-in image hashes
     pub checkout_hash: [u8; 32],     // SHA-256 of check-out image hashes
     pub settlement_hash: [u8; 32],   // SHA-256 of settlement result JSON
+    pub created_at: i64,             // Unix timestamp of contract initialization
     pub bump: u8,                    // PDA bump seed, stored for mutable constraints
 }
 
 impl RentalAgreement {
     // discriminator(8) + contract_id(32) + contract_hash(32) + deposit_lamports(8)
     // + landlord(32) + tenant(32) + state(1) + checkin_hash(32)
-    // + checkout_hash(32) + settlement_hash(32) + bump(1) + padding(14)
-    pub const SIZE: usize = 8 + 32 + 32 + 8 + 32 + 32 + 1 + 32 + 32 + 32 + 1 + 14;
+    // + checkout_hash(32) + settlement_hash(32) + created_at(8) + bump(1) + padding(6)
+    pub const SIZE: usize = 8 + 32 + 32 + 8 + 32 + 32 + 1 + 32 + 32 + 32 + 8 + 1 + 6;
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
