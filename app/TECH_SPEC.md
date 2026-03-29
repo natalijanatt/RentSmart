@@ -28,6 +28,7 @@ RentSmart je mobilna aplikacija koja rešava problem poverenja i transparentnost
 | Offline | Zahteva internet | Pojednostavljuje MVP |
 | Smart contract | State machine + Solana Devnet (Anchor) | State machine primarno, Solana PDA za escrow i hash zapis |
 | Validacija inputa | Zod (runtime type-safe) | Runtime validacija + generisanje TypeScript tipova iz šema |
+| Deljeni API kontrakti | Workspace paket `packages/contracts` | Jedan izvor istine za Zod šeme i TypeScript tipove koje koriste backend i mobile |
 | Backend struktura | Domain modules (modularni) | Svaki domen (auth, contracts, inspections, analysis, audit, blockchain) je izolovani modul sa routes/service/schema |
 | Kompresija slika | Preporučen resize na 1920px | Nije obavezan za MVP, ali sprečava storage overflow |
 
@@ -160,7 +161,7 @@ src/
 - Routes NIKAD ne sadrže biznis logiku — delegiraju na service
 - Dozvoljene zavisnosti: auth→shared, contracts→shared+audit, inspections→shared+audit+contracts, analysis→shared+audit+contracts+inspections, audit→shared, blockchain→shared
 - NIKAD cirkularne zavisnosti
-- SVI tipovi žive u shared/types/index.ts — nikad definisati tipove u modulu
+- Deljeni API i domenski tipovi žive u `packages/contracts/src` — nikad ih ne duplirati u server i mobile aplikaciji
 
 ## 3. Baza podataka — PostgreSQL Schema
 
@@ -335,8 +336,11 @@ CREATE TABLE settlements (
   settlement_type         settlement_type NOT NULL,
   requires_manual_review  BOOLEAN DEFAULT FALSE,
   explanation             TEXT,
+  landlord_approved_at    TIMESTAMPTZ,
+  landlord_approved_by    UUID REFERENCES users(id),
+  tenant_approved_at      TIMESTAMPTZ,
+  tenant_approved_by      UUID REFERENCES users(id),
   finalized_at            TIMESTAMPTZ,
-  finalized_by            UUID REFERENCES users(id),
   created_at              TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -486,7 +490,7 @@ const TRANSITION_ACTORS = {
   'checkout_pending_approval → checkout_rejected': 'landlord', // odbija slike
   'checkout_rejected → checkout_in_progress': 'tenant', // ponovo slika
   'pending_analysis → settlement':       'system',      // LLM + rule engine
-  'settlement → completed':             'both'          // obe strane finalizuju
+  'settlement → completed':             'both'          // status prelazi tek kada obe strane posebno odobre settlement
 };
 ```
 
@@ -497,6 +501,7 @@ const TRANSITION_ACTORS = {
 Base URL: `https://<backend-host>/api/v1`
 
 Svi endpoint-i osim `/auth/*` zahtevaju `Authorization: Bearer <firebase_id_token>` header.
+Backend NE izdaje sopstveni session JWT za MVP. Mobile čuva i osvežava Firebase ID token preko Firebase SDK-a.
 
 Svi endpoint-i koji primaju request body koriste Zod validaciju (runtime type-safe).
 Validacija se primenjuje kroz `zodMiddleware(schema)` u route chain-u.
@@ -527,7 +532,7 @@ Ako validacija ne prođe, vraća se 400 sa detaljnim opisom grešaka:
     "display_name": "Marko Petrović",
     "device_id": "expo-abc123"
   },
-  "token": "jwt_session_token"
+  "auth_source": "firebase"
 }
 ```
 
@@ -598,9 +603,9 @@ Ako validacija ne prođe, vraća se 400 sa detaljnim opisom grešaka:
 images[]:         File[] (1-10 slika za jednu prostoriju)
 room_id:          UUID
 captured_at[]:    ISO timestamp po slici
-gps_lat:          number
-gps_lng:          number
-device_id:        string
+gps_lat[]:        number po slici
+gps_lng[]:        number po slici
+device_id[]:      string po slici
 notes[]:          string[] (opciona napomena po slici)
 ```
 
@@ -645,14 +650,13 @@ function validateImageMetadata(contractGps, imageMetadata) {
 | POST | `/contracts/:id/analyze` | Pokreni LLM analizu (sistem, automatski) |
 | GET | `/contracts/:id/analysis` | Rezultati analize po prostoriji |
 | GET | `/contracts/:id/settlement` | Settlement breakdown |
-| POST | `/contracts/:id/finalize` | Finalizacija settlement-a |
+| POST | `/contracts/:id/settlement/approve` | Evidentira approval trenutnog korisnika; kada obe strane odobre, settlement se finalizuje |
 
 ### 5.5 Audit Trail
 
 | Method | Endpoint | Opis |
 |--------|----------|------|
 | GET | `/contracts/:id/audit` | Kompletan audit trail za ugovor |
-| GET | `/contracts/:id/audit/:event_id` | Detalji jednog eventa |
 
 **GET `/contracts/:id/audit`** — Response:
 ```json
@@ -684,9 +688,11 @@ function validateImageMetadata(contractGps, imageMetadata) {
 
 | Method | Endpoint | Opis |
 |--------|----------|------|
-| GET | `/contracts/:id/blockchain` | Provera on-chain zapisa (Solana PDA) |
+| — | Nema zasebnog MVP endpoint-a | Solana status je interni verifikacioni layer backend-a |
 
 **GET `/contracts/:id/blockchain`** — Response:
+Napomena: ovaj payload je interni primer, ne response zasebnog MVP endpoint-a.
+
 \`\`\` json
 {
 "on_chain": true,
@@ -713,7 +719,7 @@ function validateImageMetadata(contractGps, imageMetadata) {
 Korisnik → Unosi phone number → Firebase šalje SMS OTP
          → Unosi OTP → Firebase vraća ID token
          → Šalje token na backend → Backend verifikuje sa Firebase Admin SDK
-         → Kreira/ažurira korisnika u PostgreSQL → Vraća session
+         → Kreira/ažurira korisnika u PostgreSQL → Vraća normalizovan user payload
 ```
 
 **Backend verifikacija:**
@@ -1712,7 +1718,7 @@ app/
 **Osoba B (Backend):**
 - [ ] API: GET /contracts/:id/analysis
 - [ ] API: GET /contracts/:id/settlement
-- [ ] API: POST /contracts/:id/finalize
+- [ ] API: POST /contracts/:id/settlement/approve
 - [ ] Automatski trigger analize nakon checkout approve
 - [ ] Settlement → completed tranzicija
 - [ ] API: GET /contracts/:id/audit (timeline)
@@ -1852,7 +1858,7 @@ MOCK_LLM=false
 
 10. **Audit trail** → "Svaki korak je zapisan, hash-iran, verifikovan — ovo je jedinstven izvor istine"
 
-11. **Blockchain** → "Hash ugovora i settlement-a je na Sepolia testnetu — pogledajte na Etherscan"
+11. **Blockchain** → "Hash ugovora i settlement-a je na Solana Devnet-u — pogledajte u Solana Explorer-u"
 
 12. **Zaključak** — "Ana više ne mora da veruje Marku. Sistem garantuje fer ishod."
 

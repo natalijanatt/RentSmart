@@ -1,290 +1,273 @@
-# RentSmart MVP — Implementation Guide
+# CLAUDE.md - RentSmart Mobile
 
-## 0. Goal
-Build a mobile app for rental contracts with:
-- contract lifecycle
-- image-based inspection
-- AI damage analysis
-- deposit settlement
+## What this is
 
----
+Expo React Native app for RentSmart. It handles Firebase phone auth, contract creation and invite flows, check-in/check-out camera capture, review flows, settlement review, and audit visibility.
 
-## 1. Stack
+Canonical product flow:
+landlord creates contract -> tenant accepts -> landlord photographs check-in -> tenant approves or rejects -> tenant photographs check-out -> landlord approves or rejects -> system analyzes images -> both landlord and tenant approve settlement -> contract completes.
 
-### Backend
-- Node.js + Express
-- PostgreSQL (Supabase)
+## Tech stack
 
-### Frontend
-- React Native (Expo)
+- React Native + Expo SDK 52+
+- expo-router
+- TypeScript
+- expo-camera
+- expo-location
+- expo-image-manipulator
+- react-native-paper
+- axios
+- Zustand
+- Firebase Auth
 
-### Storage
-- Supabase Storage
+## Shared contract
 
-### AI
-- Gemini Vision (or mock)
+The app must import API/domain types from `packages/contracts/src`.
 
----
+- Do not keep a parallel `types/contract.ts`, `types/inspection.ts`, `types/settlement.ts`, or `types/audit.ts`.
+- Mobile-specific local types are fine for UI state only.
+- Request/response payloads, status enums, and audit/settlement shapes come from the shared package.
 
-## 2. Core Modules (Backend)
+## Suggested structure
 
-Implement modules:
-- auth
-- contracts
-- inspections
-- analysis
-- settlements
-- audit
+```text
+mobile/
+├── app/
+│   ├── (auth)/
+│   ├── (tabs)/
+│   ├── contract/[id]/
+│   ├── invite/[code].tsx
+│   └── _layout.tsx
+├── components/
+├── services/
+├── hooks/
+├── store/
+├── constants/
+├── utils/
+├── app.json
+└── package.json
 
----
+packages/
+└── contracts/
+    └── src/
+```
 
-## 3. Database (Required Tables)
+## Auth model
 
-Create tables:
-- users
-- contracts
-- rooms
-- inspection_images
-- analysis_results
-- settlements
-- audit_events
+- MVP auth uses Firebase ID tokens directly.
+- The app sends `Authorization: Bearer <firebase_id_token>` on protected API calls.
+- The backend does not mint a separate session JWT.
+- `POST /auth/verify` is a bootstrap/upsert call after Firebase login succeeds.
+- Secure storage should persist Firebase auth state/token handling, not a backend session token.
 
-Constraints:
-- UUID primary keys
-- ENUM for statuses
-- indexes required
+## Routing
 
----
+### Auth flow
 
-## 4. State Machine (MANDATORY)
+- Unauthenticated user sees `(auth)/login.tsx`.
+- If backend returns a user without `display_name`, continue to `(auth)/register.tsx`.
+- Root layout switches between auth group and main app based on auth store.
 
-All contract status changes MUST go through:
+### Main app
 
-function:
-transitionState(contractId, newStatus, actorRole)
+- `(tabs)/index.tsx`: dashboard
+- `(tabs)/new-contract.tsx`: create contract
+- `(tabs)/profile.tsx`: profile + logout
+- `contract/[id]/index.tsx`: contract details
+- `contract/[id]/checkin.tsx`: landlord camera flow
+- `contract/[id]/checkout.tsx`: tenant camera flow
+- `contract/[id]/review-images.tsx`: approval/rejection screen
+- `contract/[id]/settlement.tsx`: settlement review + approvals
+- `contract/[id]/audit.tsx`: audit timeline
+- `invite/[code].tsx`: invite accept flow
 
-DO NOT update status directly in DB.
+## API contract
 
-Allowed transitions must be validated.
+Base URL: `{API_URL}/api/v1`
 
----
+Protected auth header:
 
-## 5. Auth
+```text
+Authorization: Bearer {firebase_id_token}
+```
 
-Implement:
-POST /auth/verify
+Routes used by mobile:
 
-If Firebase not available:
-- use mock users via header:
-  X-Mock-User
+```text
+POST   /auth/verify
+GET    /auth/me
 
----
+POST   /contracts
+GET    /contracts
+GET    /contracts/:id
+GET    /contracts/invite/:code
+POST   /contracts/:id/accept
+POST   /contracts/:id/cancel
 
-## 6. Contracts
+POST   /contracts/:id/checkin/start
+POST   /contracts/:id/checkin/images
+POST   /contracts/:id/checkin/complete
+POST   /contracts/:id/checkin/approve
+POST   /contracts/:id/checkin/reject
+GET    /contracts/:id/checkin/images
 
-Endpoints:
-- POST /contracts
-- GET /contracts
-- GET /contracts/:id
-- POST /contracts/:id/accept
+POST   /contracts/:id/checkout/start
+POST   /contracts/:id/checkout/images
+POST   /contracts/:id/checkout/complete
+POST   /contracts/:id/checkout/approve
+POST   /contracts/:id/checkout/reject
 
-Must:
-- generate invite_code
-- store contract data
-- create rooms
+POST   /contracts/:id/analyze
+GET    /contracts/:id/analysis
+GET    /contracts/:id/settlement
+POST   /contracts/:id/settlement/approve
 
----
+GET    /contracts/:id/audit
+```
 
-## 7. Invite System
+Not in MVP:
 
-Format:
-RS-XXXXXX
+- `GET /contracts/:id/audit/:event_id`
+- `GET /contracts/:id/blockchain`
 
-Flow:
-1. landlord creates contract
-2. invite code generated
-3. tenant accepts
-4. status → accepted
+## Contract lifecycle
 
----
+Shared status enum comes from `packages/contracts`.
 
-## 8. Check-in / Check-out
+```text
+draft
+pending_acceptance
+accepted
+checkin_in_progress
+checkin_pending_approval
+checkin_rejected
+active
+checkout_in_progress
+checkout_pending_approval
+checkout_rejected
+pending_analysis
+settlement
+completed
+cancelled
+```
 
-Each room:
-- minimum 3 images
+Transition ownership:
 
-Each image MUST include:
-- timestamp
-- gps coordinates
-- device_id
-- image_hash
+```text
+landlord: create contract, start/complete check-in, approve/reject check-out, approve settlement
+tenant: accept contract, approve/reject check-in, start/complete check-out, approve settlement
+system: run analysis and create settlement
+```
 
-Validation:
-- timestamp within ±1h
-- gps within 200m
+Important settlement rule:
 
----
+- `settlement` does not become `completed` after one button press.
+- Each side approves separately through `POST /contracts/:id/settlement/approve`.
+- UI must show who has approved already and whether the current user still needs to approve.
 
-## 9. Image Upload
+## Screen behavior
 
-Use:
-- multipart/form-data
+### Login
 
-Store in:
-{contract_id}/checkin/{room}/
-{contract_id}/checkout/{room}/
+- User enters phone number.
+- Firebase sends OTP.
+- User confirms OTP.
+- App calls `POST /auth/verify` with Firebase token, display name if available, and device ID.
+- App then uses Firebase token for future API calls.
 
----
+### New contract
 
-## 10. Analysis (AI)
+- Create landlord contract.
+- On success show invite code/link and open native share sheet.
 
-Input:
-- check-in images
-- check-out images
+### Contract details
 
-Output (STRICT JSON):
-{
-room: string,
-findings: [
-{
-item: string,
-description: string,
-severity: "none|minor|medium|major",
-confidence: number,
-wear_and_tear: boolean
-}
-]
-}
+- Show status, summary, terms, rooms, invite section if relevant.
+- Action buttons depend on role and status.
 
-If AI fails:
-- return mock response
+### Check-in
 
----
+- Only landlord can access.
+- Require camera + location permission and connectivity.
+- Minimum 3 photos per mandatory room.
+- Capture metadata per image: timestamp, GPS, device ID, hash.
 
-## 11. Rule Engine
+### Check-out
+
+- Only tenant can access.
+- Show check-in thumbnails for the same room as reference.
+- Same metadata rules as check-in.
+
+### Review images
+
+- Tenant reviews check-in.
+- Landlord reviews check-out.
+- Reject requires comment.
+
+### Settlement
+
+- Show deductions, skipped findings, explanation, and approval state.
+- Primary CTA is `Approve settlement`, not `Finalize settlement`.
+- If current user already approved, disable the CTA and show waiting state.
+- When both sides approve, refresh status to `completed`.
+- If `requires_manual_review` is true, show clear warning.
+
+### Audit
+
+- Show `/contracts/:id/audit`.
+- No per-event detail endpoint in MVP; event details come from the timeline payload itself or a local modal.
+- If Solana tx hash or explorer URL is included inside contract/audit payloads, render it as optional metadata.
+- Solana only. No Sepolia or Etherscan references anywhere.
+
+## Camera/upload contract
+
+Use `expo-camera`, not `expo-image-picker`.
+
+Client should resize images before upload. 1920px width is recommended for MVP.
+
+Multipart upload is per room, but metadata arrays are per image:
+
+```text
+images[]:       File[]
+room_id:        UUID
+captured_at[]:  ISO timestamp per image
+gps_lat[]:      number per image
+gps_lng[]:      number per image
+device_id[]:    string per image
+notes[]:        optional string per image
+```
 
 Rules:
-- minor → 3%
-- medium → 10%
-- major → 25%
 
-Conditions:
-- wear_and_tear → ignore
-- confidence < 0.6 → ignore + manual flag
-- total deduction capped at 100%
-- if >50% → manual review
+- timestamp must stay within server tolerance window
+- GPS should remain near contract location
+- device ID should stay consistent within the same inspection flow
+- offline mode is not supported in MVP
 
----
+## Service rules
 
-## 12. Settlement
+### `services/api.ts`
 
-Return:
-{
-tenant_receives_eur: number,
-landlord_receives_eur: number,
-deductions: [],
-requires_manual_review: boolean
-}
+- Attach Firebase bearer token.
+- On `401`, sign the user out locally.
+- Do not expect a backend session JWT.
 
----
+### `services/auth.ts`
 
-## 13. Audit Trail
+- Own Firebase sign-in and token retrieval.
+- Call `/auth/verify` after successful Firebase login.
 
-Each event MUST:
-- include hash
-- include previous_hash
+### `services/settlements.ts`
 
-Hash:
-SHA256(previous_hash + event_data)
+- Expose `getSettlement(contractId)` and `approveSettlement(contractId)`.
+- Do not expose a `finalizeSettlement()` API for MVP.
 
-Chain must be verifiable.
+## Common mistakes to avoid
 
----
-
-## 14. Required API
-
-Contracts:
-- POST /contracts
-- GET /contracts
-- GET /contracts/:id
-- POST /contracts/:id/accept
-
-Check-in:
-- POST /checkin/start
-- POST /checkin/images
-- POST /checkin/complete
-- POST /checkin/approve
-- POST /checkin/reject
-
-Checkout:
-- same as check-in
-
-Analysis:
-- POST /analyze
-- GET /analysis
-
-Settlement:
-- GET /settlement
-- POST /finalize
-
----
-
-## 15. Frontend Screens
-
-- Login
-- Dashboard
-- Create Contract
-- Contract Details
-- Check-in Camera
-- Check-out Camera
-- Review Images
-- Settlement
-- Audit
-
----
-
-## 16. Edge Cases
-
-Handle:
-- missing images → block
-- invalid GPS → reject
-- invalid timestamp → reject
-- AI failure → fallback
-- duplicate uploads → ignore
-
----
-
-## 17. Anti-Patterns (FORBIDDEN)
-
-- direct DB status updates
-- missing audit logs
-- frontend settlement calculation
-- images without metadata
-
----
-
-## 18. Implementation Order
-
-1. database
-2. auth (mock)
-3. contracts
-4. state machine
-5. check-in
-6. upload images
-7. check-out
-8. mock AI
-9. rule engine
-10. settlement
-11. audit
-12. real AI
-
----
-
-## 19. Definition of Done
-
-App is complete when:
-- contract lifecycle works
-- images uploaded and validated
-- AI analysis returns results
-- settlement is calculated
-- audit chain is valid
+1. Duplicating shared types inside mobile.
+2. Treating `/auth/verify` as a login session endpoint.
+3. Labeling settlement CTA as finalization instead of approval.
+4. Assuming one approval completes settlement.
+5. Sending one GPS/device value for a whole room upload.
+6. Referring to Sepolia or Etherscan instead of Solana Devnet.
+7. Designing screens for endpoints that are out of MVP scope.

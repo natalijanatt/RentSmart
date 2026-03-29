@@ -1,0 +1,13 @@
+{
+  "name": "rentsmart",
+  "private": true,
+  "workspaces": [
+    "server",
+    "mobile",
+    "blockchain",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:contracts": "npm run build --workspace @rentsmart/contracts"
+  }
+}

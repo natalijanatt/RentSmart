@@ -3,6 +3,9 @@
   "compilerOptions": {
     "strict": true,
     "paths": {
+      "@rentsmart/contracts": [
+        "../packages/contracts/src/index.ts"
+      ],
       "@/*": [
         "./*"
       ]

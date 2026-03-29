@@ -177,8 +177,11 @@ CREATE TABLE settlements (
      settlement_type         settlement_type NOT NULL,
      requires_manual_review  BOOLEAN DEFAULT FALSE,
      explanation             TEXT,
+     landlord_approved_at    TIMESTAMPTZ,
+     landlord_approved_by    UUID REFERENCES users(id),
+     tenant_approved_at      TIMESTAMPTZ,
+     tenant_approved_by      UUID REFERENCES users(id),
      finalized_at            TIMESTAMPTZ,
-     finalized_by            UUID REFERENCES users(id),
      created_at              TIMESTAMPTZ DEFAULT NOW()
 );
 
