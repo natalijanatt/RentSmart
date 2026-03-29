@@ -8,11 +8,11 @@ Orchestrates the AI pipeline: fetches check-in/checkout images per room, sends t
 
 ```
 src/modules/analysis/
-├── analysis.routes.ts      # POST analyze, GET analysis, GET settlement, POST finalize
+├── analysis.routes.ts      # POST analyze, GET analysis, GET settlement, POST settlement/approve
 ├── analysis.service.ts     # Orchestrator: fetch → LLM → rule engine → save
 ├── llmService.ts           # Gemini Vision API: analyzeRoom(), parseResponse(), mock
 ├── ruleEngine.ts           # calculateSettlement() — pure function
-└── analysis.schema.ts      # Zod: finalizeSchema (if needed)
+└── analysis.schema.ts      # Zod schemas
 ```
 
 ## Dependencies
@@ -33,7 +33,7 @@ src/modules/analysis/
 POST /api/v1/contracts/:id/analyze       # Trigger analysis (auto after checkout approve)
 GET  /api/v1/contracts/:id/analysis      # Get analysis results per room
 GET  /api/v1/contracts/:id/settlement    # Get settlement breakdown
-POST /api/v1/contracts/:id/finalize      # Finalize settlement
+POST /api/v1/contracts/:id/settlement/approve  # Approve settlement (per side; second approval finalizes)
 ```
 
 ## Orchestrator: analysis.service.ts
@@ -428,4 +428,4 @@ Test 5: Exactly 50%
 - [ ] Status transitions: pending_analysis → settlement
 - [ ] All operations log audit events
 - [ ] Mock mode returns hardcoded responses per room type
-- [ ] Finalize transitions settlement → completed
+- [ ] Second settlement approval transitions settlement → completed

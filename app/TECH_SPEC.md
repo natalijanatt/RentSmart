@@ -370,6 +370,7 @@ CREATE TYPE audit_event_type AS ENUM (
   'RULE_ENGINE_EXECUTED',
   'SETTLEMENT_PROPOSED',
   'SETTLEMENT_VIEWED',
+  'SETTLEMENT_APPROVED',
   'SETTLEMENT_FINALIZED',
   'DEPOSIT_RELEASED',
   'CONTRACT_HASH_STORED',
@@ -456,7 +457,21 @@ CREATE INDEX idx_audit_created ON audit_events(created_at);
 └───────────┘
 ```
 
-### 4.2 Dozvoljena stanja i tranzicije (validacija u backendu)
+### 4.2 Deposit status lifecycle
+
+`deposit_status` prati stanje depozita nezavisno od `contract_status`:
+
+| Tranzicija | Kada | Uslov |
+|------------|------|-------|
+| `pending` | Kreiranje ugovora | Početno stanje |
+| `pending → locked` | Stanar prihvata ugovor (`accepted`) | Depozit je osiguran (Solana escrow ili off-chain) |
+| `locked → fully_released` | Settlement finalizovan | `total_deduction_eur == 0` — ceo depozit se vraća stanaru |
+| `locked → partially_released` | Settlement finalizovan | `0 < total_deduction_eur < deposit_amount_eur` — depozit se deli |
+| `locked → claimed` | Settlement finalizovan | `total_deduction_eur == deposit_amount_eur` — ceo depozit ide stanodavcu |
+
+Backend ažurira `deposit_status` automatski pri `settlement → completed` tranziciji, na osnovu `total_deduction_eur` iz settlement-a.
+
+### 4.3 Dozvoljena stanja i tranzicije (validacija u backendu)
 
 ```javascript
 const STATE_TRANSITIONS = {
@@ -490,7 +505,10 @@ const TRANSITION_ACTORS = {
   'checkout_pending_approval → checkout_rejected': 'landlord', // odbija slike
   'checkout_rejected → checkout_in_progress': 'tenant', // ponovo slika
   'pending_analysis → settlement':       'system',      // LLM + rule engine
-  'settlement → completed':             'both'          // status prelazi tek kada obe strane posebno odobre settlement
+  'settlement → completed':             'both',         // status prelazi tek kada obe strane posebno odobre settlement
+  'draft → cancelled':                  'landlord',     // otkazuje pre slanja invite-a
+  'pending_acceptance → cancelled':     'landlord',     // otkazuje pre prihvatanja
+  'accepted → cancelled':              'both'           // bilo koja strana može otkazati pre check-in-a
 };
 ```
 
@@ -500,7 +518,7 @@ const TRANSITION_ACTORS = {
 
 Base URL: `https://<backend-host>/api/v1`
 
-Svi endpoint-i osim `/auth/*` zahtevaju `Authorization: Bearer <firebase_id_token>` header.
+Svi endpoint-i osim `/auth/*` i `/contracts/invite/:code` zahtevaju `Authorization: Bearer <firebase_id_token>` header.
 Backend NE izdaje sopstveni session JWT za MVP. Mobile čuva i osvežava Firebase ID token preko Firebase SDK-a.
 
 Svi endpoint-i koji primaju request body koriste Zod validaciju (runtime type-safe).
@@ -701,9 +719,9 @@ Napomena: ovaj payload je interni primer, ne response zasebnog MVP endpoint-a.
 "landlord": "7xKX...pubkey",
 "tenant": "3yMN...pubkey",
 "deposit_lamports": 4000000,
-"status": 1,
-"checkin_image_hash": "d4e5f6...",
-"checkout_image_hash": "000000...",
+"state": 1,
+"checkin_hash": "d4e5f6...",
+"checkout_hash": "000000...",
 "settlement_hash": "000000..."
 },
 "explorer_url": "https://explorer.solana.com/address/...?cluster=devnet"
@@ -1366,7 +1384,7 @@ Solana je DODATNI verifikacioni layer. Ako Solana poziv ne uspe, backend nastavl
 | Stanar prihvata | `lock_deposit()` | POST /contracts/:id/accept | Stanar šalje SOL u PDA |
 | Check-in odobren | `record_checkin()` | POST /checkin/approve | Hash svih check-in slika |
 | Check-out odobren | `record_checkout()` | POST /checkout/approve | Hash svih check-out slika |
-| Finalizacija | `execute_settlement()` | POST /finalize | Hash settlement-a, raspodela escrow-a |
+| Finalizacija | `execute_settlement()` | POST /settlement/approve (druga strana) | Hash settlement-a, raspodela escrow-a |
 
 Sve između (odbijanja, ponovna slikanja, LLM analiza, rule engine) je OFF-CHAIN.
 
@@ -1389,22 +1407,23 @@ use super::*;
 
     pub fn initialize(
         ctx: Context<Initialize>,
+        contract_id: [u8; 32],
         contract_hash: [u8; 32],
         deposit_lamports: u64,
     ) -> Result<()> {
         let agreement = &mut ctx.accounts.agreement;
+        agreement.contract_id = contract_id;
         agreement.contract_hash = contract_hash;
         agreement.landlord = ctx.accounts.landlord.key();
         agreement.deposit_lamports = deposit_lamports;
-        agreement.status = Status::Draft as u8;
-        agreement.created_at = Clock::get()?.unix_timestamp;
+        agreement.state = AgreementState::Created as u8;
         agreement.bump = ctx.bumps.agreement;
         Ok(())
     }
 
     pub fn lock_deposit(ctx: Context<LockDeposit>) -> Result<()> {
         let agreement = &mut ctx.accounts.agreement;
-        require!(agreement.status == Status::Draft as u8, ErrorCode::InvalidStatus);
+        require!(agreement.state == AgreementState::Created as u8, ErrorCode::InvalidStatus);
 
         // Transfer SOL from tenant to PDA
         let ix = anchor_lang::solana_program::system_instruction::transfer(
@@ -1422,7 +1441,7 @@ use super::*;
         )?;
 
         agreement.tenant = ctx.accounts.tenant.key();
-        agreement.status = Status::Active as u8;
+        agreement.state = AgreementState::DepositLocked as u8;
         Ok(())
     }
 
@@ -1431,8 +1450,8 @@ use super::*;
         image_hash: [u8; 32],
     ) -> Result<()> {
         let agreement = &mut ctx.accounts.agreement;
-        require!(ctx.accounts.landlord.key() == agreement.landlord, ErrorCode::Unauthorized);
-        agreement.checkin_image_hash = image_hash;
+        agreement.checkin_hash = image_hash;
+        agreement.state = AgreementState::CheckinRecorded as u8;
         Ok(())
     }
 
@@ -1441,9 +1460,8 @@ use super::*;
         image_hash: [u8; 32],
     ) -> Result<()> {
         let agreement = &mut ctx.accounts.agreement;
-        require!(ctx.accounts.tenant.key() == agreement.tenant, ErrorCode::Unauthorized);
-        agreement.checkout_image_hash = image_hash;
-        agreement.status = Status::PendingSettlement as u8;
+        agreement.checkout_hash = image_hash;
+        agreement.state = AgreementState::CheckoutRecorded as u8;
         Ok(())
     }
 
@@ -1455,7 +1473,7 @@ use super::*;
     ) -> Result<()> {
         let agreement = &mut ctx.accounts.agreement;
         agreement.settlement_hash = settlement_hash;
-        agreement.status = Status::Completed as u8;
+        agreement.state = AgreementState::Settled as u8;
 
         // Transfer SOL from PDA to tenant and landlord
         // (implementacija koristi PDA signer seeds za potpisivanje)
@@ -1465,26 +1483,28 @@ use super::*;
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
-pub enum Status {
-Draft = 0,
-Active = 1,
-PendingSettlement = 2,
-Completed = 3,
+pub enum AgreementState {
+    Created = 0,
+    DepositLocked = 1,
+    CheckinRecorded = 2,
+    CheckoutRecorded = 3,
+    Settled = 4,
 }
 
 #[account]
 pub struct RentalAgreement {
-pub contract_hash: [u8; 32],
-pub landlord: Pubkey,
-pub tenant: Pubkey,
-pub deposit_lamports: u64,
-pub status: u8,
-pub checkin_image_hash: [u8; 32],
-pub checkout_image_hash: [u8; 32],
-pub settlement_hash: [u8; 32],
-pub created_at: i64,
-pub bump: u8,
+    pub contract_id: [u8; 32],       // UUID bez crtica (32 ASCII karaktera)
+    pub contract_hash: [u8; 32],     // SHA-256 ugovora
+    pub deposit_lamports: u64,
+    pub landlord: Pubkey,
+    pub tenant: Pubkey,
+    pub state: AgreementState,
+    pub checkin_hash: [u8; 32],
+    pub checkout_hash: [u8; 32],
+    pub settlement_hash: [u8; 32],
+    pub bump: u8,
 }
+// SIZE = 256 bajta (8 discriminator + 248 data)
 \`\`\`
 
 ### 11.5 Backend integracija (TypeScript — Anchor klijent)
@@ -1494,28 +1514,32 @@ import { Connection, PublicKey, Keypair } from '@solana/web3.js';
 import { AnchorProvider, Program, BN } from '@coral-xyz/anchor';
 
 export class SolanaService {
-private connection: Connection;
-private authority: Keypair;
-private program: Program;
+  private connection: Connection;
+  private authority: Keypair;
+  private program: Program;
 
-findPDA(contractId: string): { pda: PublicKey; bump: number } {
-return PublicKey.findProgramAddressSync(
-[Buffer.from('rental'), Buffer.from(contractId)],
-this.program.programId
-);
-}
+  findPDA(contractId: string): { pda: PublicKey; bump: number } {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from('rental'), Buffer.from(contractId)],
+      this.program.programId
+    );
+  }
 
-async initializeContract(contractId: string, contractHash: string, depositEur: number): Promise<{
-tx_signature: string;
-pda_address: string;
-explorer_url: string;
-}> {
-const { pda } = this.findPDA(contractId);
-const depositLamports = this.eurToLamports(depositEur);
+  async initializeContract(
+    contractId: string,
+    contractHash: Buffer,
+    depositLamports: number,
+    landlordPubkey: string
+  ): Promise<{ tx_signature: string; pda_address: string; explorer_url: string }> {
+    const { pda } = this.findPDA(contractId);
 
     const tx = await this.program.methods
-      .initialize(Buffer.from(contractHash, 'hex'), new BN(depositLamports))
-      .accounts({ agreement: pda, landlord: this.authority.publicKey })
+      .initialize(
+        Buffer.from(contractId.replace(/-/g, '')),
+        contractHash,
+        new BN(depositLamports)
+      )
+      .accounts({ agreement: pda, landlord: new PublicKey(landlordPubkey) })
       .rpc();
 
     return {
@@ -1523,25 +1547,41 @@ const depositLamports = this.eurToLamports(depositEur);
       pda_address: pda.toBase58(),
       explorer_url: `https://explorer.solana.com/tx/${tx}?cluster=devnet`,
     };
-}
+  }
 
-// recordCheckin, recordCheckout, executeSettlement — isti pattern
-// Svaki je wrappovan u try/catch sa console.warn na failure
+  async buildLockDepositTx(contractId: string, tenantPubkey: string): Promise<{ serialized_tx: string }> { /* ... */ }
+
+  async recordCheckin(contractId: string, imageHash: Buffer, landlordPubkey: string): Promise<{ tx_signature: string }> { /* ... */ }
+
+  async recordCheckout(contractId: string, imageHash: Buffer, tenantPubkey: string): Promise<{ tx_signature: string }> { /* ... */ }
+
+  async executeSettlement(
+    contractId: string, settlementHash: Buffer,
+    tenantAmount: number, landlordAmount: number,
+    tenantPubkey: string, landlordPubkey: string
+  ): Promise<{ tx_signature: string; explorer_url: string }> { /* ... */ }
+
+  hashImages(imageHashes: string[]): Buffer { /* ... */ }
+
+  eurToLamports(eurAmount: number): number { /* ... */ }
 }
 \`\`\`
 
 **Pozivanje iz ostalih servisa — uvek sa try/catch:**
 \`\`\`typescript
 try {
-const solana = new SolanaService();
-const result = await solana.initializeContract(contract.id, contractHash, depositEur);
-await db.query(
-'UPDATE contracts SET solana_pda = $1, solana_tx_init = $2 WHERE id = $3',
-[result.pda_address, result.tx_signature, contract.id]
-);
+  const solana = new SolanaService();
+  const depositLamports = solana.eurToLamports(depositEur);
+  const result = await solana.initializeContract(
+    contract.id, contractHash, depositLamports, landlordPubkey
+  );
+  await db.query(
+    'UPDATE contracts SET solana_pda = $1, solana_tx_init = $2 WHERE id = $3',
+    [result.pda_address, result.tx_signature, contract.id]
+  );
 } catch (err) {
-console.warn(`Solana failed for contract ${contract.id}:`, err);
-// Nastavlja se — Solana je opcioni layer
+  console.warn(`Solana failed for contract ${contract.id}:`, err);
+  // Nastavlja se — Solana je opcioni layer
 }
 \`\`\`
 ## 12. Mobilna aplikacija — Ekrani i navigacija
@@ -1852,7 +1892,7 @@ MOCK_LLM=false
 
 7. **LLM analiza** → "Pronađena 2 oštećenja: ogrebotina na parketu (minor, 85%), puklo ogledalo (major, 93%)"
 
-8. **Rule engine** → "Zadržano 184€ (23%) — ogrebotina 24€ + ogledalo 160€. Normalno habanje: 0€."
+8. **Rule engine** → "Zadržano 224€ (28%) — ogrebotina 24€ (3%) + ogledalo 200€ (25%). Normalno habanje: 0€."
 
 9. **Settlement ekran** → transparentan breakdown sa pre/posle slikama
 

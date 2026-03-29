@@ -31,7 +31,7 @@ src/modules/blockchain/
 | Tenant accepts | contracts.service.accept() | lock_deposit() | Tenant sends SOL to PDA |
 | Check-in approved | inspections.service.approve('checkin') | record_checkin() | Combined image hash |
 | Check-out approved | inspections.service.approve('checkout') | record_checkout() | Combined image hash |
-| Finalization | analysis.service.finalize() | execute_settlement() | Settlement hash, releases escrow |
+| Settlement finalized | settlement approval (both sides) | execute_settlement() | Settlement hash, releases escrow |
 
 Everything between (rejections, re-uploads, LLM analysis, rule engine) is OFF-CHAIN.
 
@@ -44,15 +44,16 @@ export interface TxResult {
 }
 
 export interface SolanaAgreement {
+  contract_id: string;
   contract_hash: string;
   landlord: string;
   tenant: string;
   deposit_lamports: number;
-  status: number;
-  checkin_image_hash: string;
-  checkout_image_hash: string;
+  state: number;
+  checkin_hash: string;
+  checkout_hash: string;
   settlement_hash: string;
-  created_at: number;
+  bump: number;
 }
 ```
 
@@ -100,16 +101,16 @@ export class SolanaService {
 
   async initializeContract(
     contractId: string,
-    contractHash: string,
-    depositEur: number,
+    contractHash: Buffer,
+    depositLamports: number,
     landlordPubkey: string
-  ): Promise<TxResult> {
+  ): Promise<TxResult & { pda_address: string }> {
     const { pda } = this.findPDA(contractId);
-    const depositLamports = this.eurToLamports(depositEur);
 
     const tx = await this.program.methods
       .initialize(
-        Buffer.from(contractHash, 'hex'),
+        Buffer.from(contractId.replace(/-/g, '')),
+        contractHash,
         new BN(depositLamports)
       )
       .accounts({
@@ -123,6 +124,7 @@ export class SolanaService {
 
     return {
       tx_signature: tx,
+      pda_address: pda.toBase58(),
       explorer_url: `https://explorer.solana.com/tx/${tx}?cluster=devnet`,
     };
   }
@@ -133,7 +135,7 @@ export class SolanaService {
     landlordPubkey: string
   ): Promise<TxResult> {
     const { pda } = this.findPDA(contractId);
-    const combinedHash = SolanaService.hashImages(imageHashes);
+    const combinedHash = this.hashImages(imageHashes);
 
     const tx = await this.program.methods
       .recordCheckin(combinedHash)
@@ -155,7 +157,7 @@ export class SolanaService {
     tenantPubkey: string
   ): Promise<TxResult> {
     const { pda } = this.findPDA(contractId);
-    const combinedHash = SolanaService.hashImages(imageHashes);
+    const combinedHash = this.hashImages(imageHashes);
 
     const tx = await this.program.methods
       .recordCheckout(combinedHash)
@@ -173,9 +175,9 @@ export class SolanaService {
 
   async executeSettlement(
     contractId: string,
-    settlementHash: string,
-    tenantAmountEur: number,
-    landlordAmountEur: number,
+    settlementHash: Buffer,
+    tenantAmount: number,
+    landlordAmount: number,
     tenantPubkey: string,
     landlordPubkey: string
   ): Promise<TxResult> {
@@ -183,9 +185,9 @@ export class SolanaService {
 
     const tx = await this.program.methods
       .executeSettlement(
-        Buffer.from(settlementHash, 'hex'),
-        new BN(this.eurToLamports(tenantAmountEur)),
-        new BN(this.eurToLamports(landlordAmountEur))
+        settlementHash,
+        new BN(tenantAmount),
+        new BN(landlordAmount)
       )
       .accounts({
         agreement: pda,
@@ -212,13 +214,12 @@ export class SolanaService {
     }
   }
 
-  // Combine multiple image hashes into one (for on-chain storage)
-  static hashImages(imageHashes: string[]): Buffer {
+  hashImages(imageHashes: string[]): Buffer {
     const combined = imageHashes.sort().join('');
     return Buffer.from(sha256(combined), 'hex');
   }
 
-  private eurToLamports(eurAmount: number): number {
+  eurToLamports(eurAmount: number): number {
     return Math.round(eurAmount * EUR_TO_SOL_RATE * LAMPORTS_PER_SOL);
   }
 }
@@ -230,10 +231,10 @@ export class SolanaService {
 // In contracts.service.ts — create()
 try {
   const solana = new SolanaService();
+  const depositLamports = solana.eurToLamports(input.deposit_amount_eur);
   const txResult = await solana.initializeContract(
-    contract.id, contractHash, input.deposit_amount_eur, user.solana_pubkey!
+    contract.id, contractHash, depositLamports, user.solana_pubkey!
   );
-  // Save PDA and tx hash to contract record
   await db.query(
     'UPDATE contracts SET solana_pda = $1, solana_tx_init = $2 WHERE id = $3',
     [txResult.pda_address, txResult.tx_signature, contract.id]
@@ -278,7 +279,7 @@ export default router;
 ## Anchor program structure (Rust side — for reference)
 
 The Solana program (built with Anchor) should have these instructions:
-- `initialize(contract_hash: [u8; 32], deposit_lamports: u64)` — creates PDA
+- `initialize(contract_id: [u8; 32], contract_hash: [u8; 32], deposit_lamports: u64)` — creates PDA
 - `lock_deposit()` — tenant transfers SOL to PDA
 - `record_checkin(image_hash: [u8; 32])` — stores check-in image hash
 - `record_checkout(image_hash: [u8; 32])` — stores check-out image hash
@@ -288,15 +289,15 @@ PDA account structure:
 ```rust
 #[account]
 pub struct RentalAgreement {
-    pub contract_hash: [u8; 32],
+    pub contract_id: [u8; 32],       // UUID bez crtica (32 ASCII karaktera)
+    pub contract_hash: [u8; 32],     // SHA-256 ugovora
+    pub deposit_lamports: u64,
     pub landlord: Pubkey,
     pub tenant: Pubkey,
-    pub deposit_lamports: u64,
-    pub status: u8,              // 0=Draft, 1=Active, 2=PendingCheckout, 3=Completed
-    pub checkin_image_hash: [u8; 32],
-    pub checkout_image_hash: [u8; 32],
+    pub state: AgreementState,       // Created=0, DepositLocked=1, CheckinRecorded=2, CheckoutRecorded=3, Settled=4
+    pub checkin_hash: [u8; 32],
+    pub checkout_hash: [u8; 32],
     pub settlement_hash: [u8; 32],
-    pub created_at: i64,
     pub bump: u8,
 }
 ```

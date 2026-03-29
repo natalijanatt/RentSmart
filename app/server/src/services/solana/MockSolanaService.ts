@@ -72,8 +72,22 @@ export class MockSolanaService implements ISolanaService {
     };
   }
 
-  async getAgreement(_contractId: string): Promise<SolanaAgreement | null> {
-    return null;
+  async getAgreement(contractId: string): Promise<SolanaAgreement | null> {
+    console.log(`[MockSolana] getAgreement: ${contractId}`);
+    const { pda } = this.findPDA(contractId);
+    return {
+      contract_id: contractId,
+      contract_hash: '0'.repeat(64),
+      deposit_lamports: 0,
+      landlord: '11111111111111111111111111111111',
+      tenant: '11111111111111111111111111111111',
+      state: 'Created',
+      checkin_hash: '0'.repeat(64),
+      checkout_hash: '0'.repeat(64),
+      settlement_hash: '0'.repeat(64),
+      created_at: Math.floor(Date.now() / 1000),
+      explorer_url: `https://explorer.solana.com/address/${pda}?cluster=devnet`,
+    };
   }
 
   hashImages(imageHashes: string[]): Buffer {
