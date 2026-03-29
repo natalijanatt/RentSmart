@@ -41,7 +41,10 @@ src/
 │   ├── llmService.ts           # Gemini Vision API pozivi + parsiranje + mock
 │   ├── ruleEngine.ts           # Deterministička raspodela depozita
 │   ├── auditTrail.ts           # Hash chain logger (SHA-256)
-│   ├── solanaService.ts        # Anchor klijent za Solana program
+│   ├── solana/
+│   │   ├── ISolanaService.ts   # Interfejs (kopija iz app/blockchain/client/src/interface.ts)
+│   │   ├── MockSolanaService.ts# Mock implementacija za development bez blockchain-a
+│   │   └── index.ts            # Factory: createSolanaService() → real ili mock
 │   └── inviteService.ts        # Generisanje invite kodova
 ├── db/
 │   ├── client.ts               # Supabase klijent + pg Pool
@@ -605,7 +608,54 @@ Ovo formira chain of trust — ako se bilo koji event retroaktivno promeni, hash
 
 CONTRACT_CREATED, INVITE_SENT, CONTRACT_ACCEPTED, DEPOSIT_LOCKED, CHECKIN_STARTED, CHECKIN_IMAGE_CAPTURED, CHECKIN_COMPLETED, CHECKIN_APPROVED, CHECKIN_REJECTED, CHECKOUT_STARTED, CHECKOUT_IMAGE_CAPTURED, CHECKOUT_COMPLETED, CHECKOUT_APPROVED, CHECKOUT_REJECTED, LLM_ANALYSIS_STARTED, LLM_ANALYSIS_COMPLETED, RULE_ENGINE_EXECUTED, SETTLEMENT_PROPOSED, SETTLEMENT_VIEWED, SETTLEMENT_FINALIZED, DEPOSIT_RELEASED, CONTRACT_HASH_STORED, CONTRACT_CANCELLED
 
-## Solana integracija (solanaService.ts)
+## Solana integracija (services/solana/)
+
+### Arhitektura odvajanja
+
+Blockchain kod je u **posebnom modulu** (`app/blockchain/`) koji se razvija nezavisno od servera. Server i blockchain tim mogu raditi paralelno bez konflikata.
+
+```
+app/
+├── server/          ← ovaj modul (server tim)
+│   └── src/services/solana/
+│       ├── ISolanaService.ts    # Interfejs (kopija iz blockchain modula)
+│       ├── MockSolanaService.ts # Mock za development
+│       └── index.ts             # Factory — bira real vs mock automatski
+└── blockchain/      ← poseban modul (blockchain tim)
+    └── client/src/
+        ├── interface.ts         # IZVOR ISTINE za interfejs
+        └── solanaService.ts     # Prava implementacija
+```
+
+**Korišćenje u route handleru:**
+```typescript
+import { createSolanaService } from '../services/solana';
+
+// Kreira se jednom pri startu aplikacije
+const solana = createSolanaService();
+
+// Poziv u route-u — uvijek try/catch jer je blockchain bonus layer
+let solanaTx: string | null = null;
+try {
+  const result = await solana.initializeContract(contractId, contractHash, depositLamports, landlordWallet);
+  solanaTx = result.tx_signature;
+} catch (err) {
+  console.error('[Solana] initializeContract failed, continuing:', err);
+}
+```
+
+**Automatski odabir implementacije:**
+- `SOLANA_PROGRAM_ID` nije setovan → koristi `MockSolanaService` (log: `[MockSolana] ...`)
+- `SOLANA_PROGRAM_ID` je setovan + `@rentsmart/blockchain` je instaliran → koristi pravu `SolanaService` (log: `[Solana] ...`)
+
+**Integracija (kad blockchain tim završi):**
+1. `npm install` u root direktorijumu (npm workspaces linkuje `@rentsmart/blockchain`)
+2. Postavi `SOLANA_PROGRAM_ID`, `SOLANA_RPC_URL`, `SOLANA_AUTHORITY_KEYPAIR` u `.env`
+3. Restart servera — factory automatski preuzima pravu implementaciju
+
+Za detalje blockchain razvoja vidi: `app/blockchain/CLAUDE.md`
+
+### Originalna specifikacija (solanaService.ts)
 
 Solana se koristi za tri stvari: nepromenljiv zapis hash-a ugovora, escrow depozita u PDA, i automatsku raspodelu pri settlement-u.
 

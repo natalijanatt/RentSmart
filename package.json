@@ -1,0 +1,8 @@
+{
+  "name": "rentsmart",
+  "private": true,
+  "workspaces": [
+    "app/server",
+    "app/blockchain"
+  ]
+}
