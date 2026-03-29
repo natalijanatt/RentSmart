@@ -70,6 +70,7 @@ describe('rentsmart', () => {
     expect((account.depositLamports as BN).toNumber()).to.equal(depositLamports.toNumber());
     expect(account.landlord.toBase58()).to.equal(landlord.publicKey.toBase58());
     expect('created' in account.state).to.be.true;
+    expect((account.createdAt as BN).toNumber()).to.be.greaterThan(0);
     expect(account.bump).to.equal(bump);
   });
 
