@@ -16,9 +16,9 @@ export interface SettlementComputation {
 
 const SEVERITY_DEDUCTION_PERCENT: Record<string, number> = {
   none: 0,
-  minor: 5,
-  medium: 20,
-  major: 40,
+  minor: 3,
+  medium: 10,
+  major: 25,
 };
 
 export function computeSettlement(
@@ -43,17 +43,14 @@ export function computeSettlement(
         continue;
       }
 
-      if (finding.confidence < 0.5) {
+      if (finding.confidence < 0.6) {
         skippedFindings.push({
           finding: finding.item,
           description: finding.description,
           reason: `confidence too low (${finding.confidence.toFixed(2)})`,
         });
-        continue;
-      }
-
-      if (finding.confidence < 0.7) {
         requiresManualReview = true;
+        continue;
       }
 
       const deductionPercent = SEVERITY_DEDUCTION_PERCENT[finding.severity] ?? 5;
@@ -73,6 +70,10 @@ export function computeSettlement(
 
   const rawTotalPercent = deductions.reduce((sum, d) => sum + d.deduction_percent, 0);
   const clampedTotalPercent = Math.min(rawTotalPercent, 100);
+
+  if (clampedTotalPercent > 50) {
+    requiresManualReview = true;
+  }
   const totalDeductionEur = (depositAmountEur * clampedTotalPercent) / 100;
   const tenantReceivesEur = Math.max(0, depositAmountEur - totalDeductionEur);
   const landlordReceivesEur = totalDeductionEur;

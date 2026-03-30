@@ -14,10 +14,12 @@ const llmService = createLlmService();
 
 // ── Mappers ───────────────────────────────────────────────────────────────────
 
-function toAnalysisResult(db: DbAnalysisResult): AnalysisResult {
+type DbAnalysisResultWithRoom = DbAnalysisResult & { room_type: string };
+
+function toAnalysisResult(db: DbAnalysisResultWithRoom): AnalysisResult {
   return {
     room_id: db.room_id,
-    room: db.overall_condition ?? 'unknown',
+    room: db.room_type,
     findings: (db.findings as Finding[]) ?? [],
     summary: db.summary ?? '',
     overall_condition: (db.overall_condition as AnalysisResult['overall_condition']) ?? 'unknown',
@@ -67,6 +69,8 @@ export async function runAnalysis(contractId: string): Promise<Settlement> {
     `SELECT * FROM rooms WHERE contract_id = $1 ORDER BY display_order ASC`,
     [contractId],
   );
+
+  await logAuditEvent(contractId, 'LLM_ANALYSIS_STARTED', null, 'system', { rooms_count: rooms.length });
 
   // 3. Analyze each room (outside transaction — involves external HTTP)
   const analysisRows: DbAnalysisResult[] = [];
@@ -175,7 +179,7 @@ export async function runAnalysis(contractId: string): Promise<Settlement> {
         overallCondition,
         llmModel,
         tokensUsed,
-        rawContent,
+        JSON.stringify({ raw: rawContent }),
       ],
     );
     if (row) analysisRows.push(row);
@@ -261,8 +265,12 @@ export async function getAnalysisResults(
     throw AppError.forbidden('Access denied.');
   }
 
-  const rows = await query<DbAnalysisResult>(
-    `SELECT * FROM analysis_results WHERE contract_id = $1`,
+  const rows = await query<DbAnalysisResultWithRoom>(
+    `SELECT ar.*, r.room_type
+     FROM analysis_results ar
+     JOIN rooms r ON r.id = ar.room_id
+     WHERE ar.contract_id = $1
+     ORDER BY r.display_order ASC, ar.analyzed_at ASC`,
     [contractId],
   );
 
@@ -371,11 +379,18 @@ export async function approveSettlement(
       const finalized = finalizedResult.rows[0];
       if (!finalized) throw AppError.internal('Failed to finalize settlement.');
 
-      validateTransition('settlement', 'completed', 'both');
+      validateTransition('settlement', 'completed', actorRole);
+
+      const newDepositStatus =
+        parseFloat(finalized.total_deduction_eur) === 0
+          ? 'fully_released'
+          : parseFloat(finalized.total_deduction_eur) >= parseFloat(finalized.deposit_amount_eur)
+            ? 'claimed'
+            : 'partially_released';
 
       await client.query(
-        `UPDATE contracts SET status = 'completed', updated_at = NOW() WHERE id = $1`,
-        [contractId],
+        `UPDATE contracts SET status = 'completed', deposit_status = $1, updated_at = NOW() WHERE id = $2`,
+        [newDepositStatus, contractId],
       );
 
       await logAuditEvent(
@@ -384,6 +399,15 @@ export async function approveSettlement(
         null,
         'system',
         { settlement_id: settlement.id, finalized_at: new Date().toISOString() },
+        client,
+      );
+
+      await logAuditEvent(
+        contractId,
+        'DEPOSIT_RELEASED',
+        null,
+        'system',
+        { deposit_status: newDepositStatus, total_deduction_eur: finalized.total_deduction_eur },
         client,
       );
 

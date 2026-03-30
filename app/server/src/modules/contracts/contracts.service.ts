@@ -1,5 +1,3 @@
-import crypto from 'crypto';
-
 import type { PoolClient } from 'pg';
 
 import type { Contract, CreateContractBody, Room } from '@rentsmart/contracts';
@@ -51,7 +49,12 @@ function toContract(db: DbContract, rooms: DbRoom[]): Contract {
 }
 
 function generateInviteCode(): string {
-  return crypto.randomBytes(6).toString('base64url').toUpperCase().slice(0, 8);
+  const charset = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let code = 'RS-';
+  for (let i = 0; i < 6; i++) {
+    code += charset[Math.floor(Math.random() * charset.length)];
+  }
+  return code;
 }
 
 async function fetchRooms(contractId: string, client?: PoolClient): Promise<DbRoom[]> {
@@ -80,12 +83,17 @@ export async function createContract(
       }),
     );
 
+    const plainLanguageSummary =
+      `Stan na adresi ${body.property_address} izdaje se uz mesečnu kiriju od ${body.rent_monthly_eur}€ ` +
+      `i depozit od ${body.deposit_amount_eur}€. Ugovor važi od ${body.start_date} do ${body.end_date}. ` +
+      (body.deposit_rules ? `Pravila depozita: ${body.deposit_rules}` : 'Depozit se vraća u celosti ako nema oštećenja.');
+
     const contractResult = await client.query<DbContract>(
       `INSERT INTO contracts
          (landlord_id, invite_code, property_address, property_gps_lat, property_gps_lng,
           rent_monthly_eur, deposit_amount_eur, start_date, end_date,
-          deposit_rules, notes, status, deposit_status, contract_hash)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', 'pending', $12)
+          deposit_rules, notes, plain_language_summary, status, deposit_status, contract_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'draft', 'pending', $13)
        RETURNING *`,
       [
         landlordId,
@@ -99,6 +107,7 @@ export async function createContract(
         body.end_date,
         body.deposit_rules ?? null,
         body.notes ?? null,
+        plainLanguageSummary,
         contractHash,
       ],
     );
@@ -203,7 +212,7 @@ export async function acceptContract(contractId: string, tenantId: string): Prom
     validateTransition(contractRow.status as Contract['status'], 'accepted', 'tenant');
 
     const updated = await client.query<DbContract>(
-      `UPDATE contracts SET status = 'accepted', tenant_id = $1, updated_at = NOW()
+      `UPDATE contracts SET status = 'accepted', deposit_status = 'locked', tenant_id = $1, updated_at = NOW()
        WHERE id = $2 RETURNING *`,
       [tenantId, contractId],
     );
@@ -211,6 +220,7 @@ export async function acceptContract(contractId: string, tenantId: string): Prom
     if (!updatedRow) throw AppError.internal('Failed to update contract.');
 
     await logAuditEvent(contractId, 'CONTRACT_ACCEPTED', tenantId, 'tenant', {}, client);
+    await logAuditEvent(contractId, 'DEPOSIT_LOCKED', tenantId, 'tenant', {}, client);
 
     const roomRows = await fetchRooms(contractId, client);
     return toContract(updatedRow, roomRows);
@@ -239,6 +249,10 @@ export async function cancelContract(
     const actorRole = isLandlord ? 'landlord' : 'tenant';
 
     assertCancellable(contractRow.status as Contract['status']);
+
+    if (contractRow.status === 'pending_acceptance' && !isLandlord) {
+      throw AppError.forbidden('Only the landlord can cancel before the contract is accepted.');
+    }
 
     const updated = await client.query<DbContract>(
       `UPDATE contracts SET status = 'cancelled', rejection_comment = $1, updated_at = NOW()
