@@ -8,6 +8,7 @@ export const Colors = {
   warning: '#f1c40f',
   info: '#4aa0d9',
   background: '#282e3d',
+  backgroundSecondary: '#2f3647',
   surface: '#34415a',
   dark: '#1b211e',
   text: '#f4f5f7',
@@ -16,6 +17,7 @@ export const Colors = {
   border: '#3e4a66',
   divider: '#3f4f6c',
   skeleton: '#37455e',
+  white: '#ffffff',
 };
 
 export const Spacing = {
@@ -69,6 +71,18 @@ export const Typography = {
     fontSize: 12,
     fontWeight: '400' as const,
     lineHeight: 16,
+    letterSpacing: 0.4,
+  },
+  bodySemibold: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    lineHeight: 24,
+    letterSpacing: 0.5,
+  },
+  captionSmall: {
+    fontSize: 11,
+    fontWeight: '400' as const,
+    lineHeight: 14,
     letterSpacing: 0.4,
   },
   button: {

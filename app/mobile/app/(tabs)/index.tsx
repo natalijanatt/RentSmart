@@ -50,7 +50,7 @@ export default function DashboardScreen() {
 
   const handleContractPress = (contract: any) => {
     setSelectedContract(contract);
-    router.push(`/contract/${contract.id}`);
+    router.push({ pathname: '/contract/[id]', params: { id: contract.id } });
   };
 
   const handleNewContract = () => {

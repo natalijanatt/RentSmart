@@ -53,7 +53,7 @@ export default function AddPropertyScreen() {
 
       addContract(response.contract);
       Alert.alert('Success', 'Property saved as a draft contract.');
-      router.push(`/contract/${response.contract.id}`);
+      router.push({ pathname: '/contract/[id]', params: { id: response.contract.id } });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save property');
     } finally {

@@ -67,7 +67,7 @@ export default function NewContractScreen() {
 
       addContract(response.contract);
       Alert.alert('Success', 'Contract created! Invite code: ' + response.contract.invite_code);
-      router.push(`/contract/${response.contract.id}`);
+      router.push({ pathname: '/contract/[id]', params: { id: response.contract.id } });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create contract');
     } finally {

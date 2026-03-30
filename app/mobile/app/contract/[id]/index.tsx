@@ -6,6 +6,7 @@ import {
   ScrollView,
   SafeAreaView,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { useLocalSearchParams, useFocusEffect, router } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
@@ -22,10 +23,19 @@ import {
 export default function ContractDetailsScreen() {
   const { id } = useLocalSearchParams();
   const { user } = useAuthStore();
-  const { selectedContract, setSelectedContract, isLoading, setIsLoading } = useContractsStore();
+  const { contracts, selectedContract, setSelectedContract, isLoading, setIsLoading } = useContractsStore();
 
   const loadContractDetails = useCallback(async () => {
     if (!id) return;
+
+    // Use contract from store if available (has correct user ids from dashboard)
+    const storeContract = contracts.find(c => c.id === id);
+    if (storeContract) {
+      setSelectedContract(storeContract);
+      return;
+    }
+
+    // Fallback to API
     setIsLoading(true);
     try {
       const response = await contractsService.getContract(id as string);
@@ -36,7 +46,7 @@ export default function ContractDetailsScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [id, setSelectedContract, setIsLoading]);
+  }, [id, contracts, setSelectedContract, setIsLoading]);
 
   useFocusEffect(
     useCallback(() => {
@@ -57,6 +67,8 @@ export default function ContractDetailsScreen() {
   }
 
   const contract = selectedContract;
+  const isLandlord = user?.id === contract.landlord_id;
+  const isTenant = user?.id === contract.tenant_id;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -100,8 +112,11 @@ export default function ContractDetailsScreen() {
           <Card style={styles.card}>
             <Text style={[styles.cardTitle, Typography.heading4]}>Rooms</Text>
             <Divider />
-            {contract.rooms.map((room, index) => (
-              <View key={room.id}>
+            {contract.rooms.map((room) => (
+              <View key={room.id} style={styles.roomRow}>
+                <Text style={[styles.summaryLabel, Typography.body]}>
+                  {room.custom_name || room.room_type}
+                </Text>
                 {room.is_mandatory && (
                   <Badge label="Mandatory" variant="primary" size="small" />
                 )}
@@ -110,17 +125,58 @@ export default function ContractDetailsScreen() {
           </Card>
         )}
 
-        {/* Actions */}
+        {/* Role-based Actions */}
         <View style={styles.actions}>
-          <Button
-            label="View Settlement"
-            onPress={() => router.push(`/contract/${contract.id}/settlement`)}
-            fullWidth
-            style={styles.actionButton}
-          />
+          {/* Tenant: accept pending contract */}
+          {isTenant && contract.status === 'pending_acceptance' && (
+            <Button
+              label="Accept Contract"
+              onPress={async () => {
+                try {
+                  const resp = await contractsService.acceptContract(contract.id);
+                  setSelectedContract(resp.contract);
+                } catch (e) {
+                  Alert.alert('Error', 'Failed to accept contract');
+                }
+              }}
+              fullWidth
+              style={styles.actionButton}
+            />
+          )}
+
+          {/* Landlord: start check-in */}
+          {isLandlord && (contract.status === 'accepted' || contract.status === 'checkin_rejected') && (
+            <Button
+              label="Start Check-in"
+              onPress={() => router.push({ pathname: '/contract/[id]/checkin', params: { id: contract.id } })}
+              fullWidth
+              style={styles.actionButton}
+            />
+          )}
+
+          {/* Tenant: start check-out */}
+          {isTenant && contract.status === 'active' && (
+            <Button
+              label="Start Check-out"
+              onPress={() => router.push({ pathname: '/contract/[id]/checkout', params: { id: contract.id } })}
+              fullWidth
+              style={styles.actionButton}
+            />
+          )}
+
+          {/* Settlement */}
+          {(contract.status === 'settlement' || contract.status === 'completed') && (
+            <Button
+              label="View Settlement"
+              onPress={() => router.push({ pathname: '/contract/[id]/settlement', params: { id: contract.id } })}
+              fullWidth
+              style={styles.actionButton}
+            />
+          )}
+
           <Button
             label="View Audit Trail"
-            onPress={() => router.push(`/contract/${contract.id}/audit`)}
+            onPress={() => router.push({ pathname: '/contract/[id]/audit', params: { id: contract.id } })}
             variant="outline"
             fullWidth
           />
@@ -179,6 +235,12 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     marginBottom: Spacing.md,
+  },
+  roomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
   },
   error: {
     color: Colors.error,
