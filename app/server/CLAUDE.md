@@ -223,7 +223,6 @@ POST   /contracts/:id/checkout/complete
 POST   /contracts/:id/checkout/approve
 POST   /contracts/:id/checkout/reject
 
-POST   /contracts/:id/analyze
 GET    /contracts/:id/analysis
 GET    /contracts/:id/settlement
 POST   /contracts/:id/settlement/approve
@@ -235,6 +234,10 @@ Not in MVP:
 
 - `GET /contracts/:id/audit/:event_id`
 - `GET /contracts/:id/blockchain`
+
+Internal/system-only orchestration:
+
+- `POST /contracts/:id/analyze`
 
 ## Request/response rules
 
@@ -259,6 +262,8 @@ Response:
   "auth_source": "firebase"
 }
 ```
+
+`display_name` is expected to be present by the time `/auth/verify` is called. If mobile needs a separate register/profile-completion step, it should collect the value before this request.
 
 ### Image upload
 

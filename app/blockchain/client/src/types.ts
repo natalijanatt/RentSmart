@@ -5,7 +5,7 @@
 
 /** Raw on-chain representation of RentalAgreement account fields as returned by Anchor. */
 export interface RentalAgreementRaw {
-  contractId: number[];        // [u8; 36]
+  contractId: number[];        // [u8; 32]
   contractHash: number[];      // [u8; 32]
   depositLamports: bigint;
   landlord: string;            // base58 public key (Anchor deserializes Pubkey → string)

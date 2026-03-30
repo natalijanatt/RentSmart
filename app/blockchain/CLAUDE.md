@@ -9,6 +9,7 @@ Ovaj modul je **potpuno odvojen** od server koda — može se razvijati, testira
 ### Šta blockchain radi
 
 Solana se koristi za tri stvari:
+
 1. **Nepromenljiv zapis** — hash ugovora i hash-evi inspekcijskih slika upisani on-chain
 2. **Escrow depozita** — stanareva SOL sredstva zaključana u PDA dok ugovor traje
 3. **Automatska raspodela** — execute_settlement() šalje tačne iznose stanodavcu i stanaru bez posrednika
@@ -178,19 +179,19 @@ Svaki ugovor ima svoju Program Derived Account (PDA):
 seeds = ["rental", contract_id_as_bytes]
 ```
 
-- `contract_id` je UUID string (36 bajta ASCII), npr. `"550e8400-e29b-41d4-a716-446655440000"`
+- `contract_id` je UUID string bez crtica (32 ASCII karaktera), npr. `"550e8400e29b41d4a716446655440000"` — format zadovoljava Solana PDA seed limit od 32 bajta po seed-u
 - PDA nije vlastnik novca — ona JE escrow (SOL se deponuje direktno u PDA account)
 - Backend authority keypair potpisuje sve instrukcije osim `lock_deposit` (potpisuje stanar)
 
 ### Instrukcije
 
-| Instrukcija | Ko potpisuje | Šta radi |
-|-------------|-------------|---------|
-| `initialize` | authority | Kreira PDA, čuva contract_hash + deposit_lamports |
-| `lock_deposit` | tenant | Tenant šalje SOL u PDA, state → DepositLocked |
-| `record_checkin` | authority | Čuva hash check-in slika, state → CheckinRecorded |
-| `record_checkout` | authority | Čuva hash check-out slika, state → CheckoutRecorded |
-| `execute_settlement` | authority | Šalje SOL tanant-u i landlord-u po iznosima, state → Settled |
+| Instrukcija          | Ko potpisuje | Šta radi                                                     |
+| -------------------- | ------------ | ------------------------------------------------------------ |
+| `initialize`         | authority    | Kreira PDA, čuva contract_hash + deposit_lamports            |
+| `lock_deposit`       | tenant       | Tenant šalje SOL u PDA, state → DepositLocked                |
+| `record_checkin`     | authority    | Čuva hash check-in slika, state → CheckinRecorded            |
+| `record_checkout`    | authority    | Čuva hash check-out slika, state → CheckoutRecorded          |
+| `execute_settlement` | authority    | Šalje SOL tanant-u i landlord-u po iznosima, state → Settled |
 
 ### Stati ugovora (AgreementState enum)
 
@@ -204,7 +205,7 @@ Svaka instrukcija provjera tačan state — ako state nije ispravan, vraća `Inv
 
 ```rust
 pub struct RentalAgreement {
-    pub contract_id: [u8; 36],      // UUID string
+    pub contract_id: [u8; 32],      // UUID bez crtica (32 ASCII karaktera)
     pub contract_hash: [u8; 32],    // SHA-256 ugovora
     pub deposit_lamports: u64,
     pub landlord: Pubkey,
@@ -220,11 +221,11 @@ pub struct RentalAgreement {
 
 ### Greške
 
-| Kod | Poruka |
-|-----|--------|
-| `InvalidState` | Invalid state for this operation |
+| Kod                  | Poruka                                  |
+| -------------------- | --------------------------------------- |
+| `InvalidState`       | Invalid state for this operation        |
 | `SettlementMismatch` | Settlement amounts do not equal deposit |
-| `Unauthorized` | Unauthorized signer |
+| `Unauthorized`       | Unauthorized signer                     |
 
 ---
 
@@ -239,11 +240,34 @@ pub struct RentalAgreement {
 
 export interface ISolanaService {
   findPDA(contractId: string): { pda: string; bump: number };
-  initializeContract(contractId, contractHash, depositLamports, landlordPubkey): Promise<SolanaInitResult>;
-  buildLockDepositTx(contractId, tenantPubkey): Promise<{ serialized_tx: string }>;
-  recordCheckin(contractId, imageHash, landlordPubkey): Promise<{ tx_signature: string }>;
-  recordCheckout(contractId, imageHash, tenantPubkey): Promise<{ tx_signature: string }>;
-  executeSettlement(contractId, settlementHash, tenantAmount, landlordAmount, tenantPubkey, landlordPubkey): Promise<SolanaSettlementResult>;
+  initializeContract(
+    contractId,
+    contractHash,
+    depositLamports,
+    landlordPubkey,
+  ): Promise<SolanaInitResult>;
+  buildLockDepositTx(
+    contractId,
+    tenantPubkey,
+  ): Promise<{ serialized_tx: string }>;
+  recordCheckin(
+    contractId,
+    imageHash,
+    landlordPubkey,
+  ): Promise<{ tx_signature: string }>;
+  recordCheckout(
+    contractId,
+    imageHash,
+    tenantPubkey,
+  ): Promise<{ tx_signature: string }>;
+  executeSettlement(
+    contractId,
+    settlementHash,
+    tenantAmount,
+    landlordAmount,
+    tenantPubkey,
+    landlordPubkey,
+  ): Promise<SolanaSettlementResult>;
   getAgreement(contractId): Promise<SolanaAgreement | null>;
   hashImages(imageHashes: string[]): Buffer;
   eurToLamports(eurAmount: number): number;
@@ -253,7 +277,7 @@ export interface ISolanaService {
 ### SolanaService klasa
 
 ```typescript
-import { SolanaService } from '@rentsmart/blockchain';
+import { SolanaService } from "@rentsmart/blockchain";
 
 const solana = new SolanaService();
 // Constructor čita env varijable: SOLANA_RPC_URL, SOLANA_PROGRAM_ID, SOLANA_AUTHORITY_KEYPAIR
@@ -263,28 +287,53 @@ const solana = new SolanaService();
 
 ```typescript
 // 1. Inicijalizacija ugovora (POST /contracts)
-const contractHash = crypto.createHash('sha256').update(JSON.stringify(contractData)).digest();
-const result = await solana.initializeContract(contractId, contractHash, depositLamports, landlordWallet);
+const contractHash = crypto
+  .createHash("sha256")
+  .update(JSON.stringify(contractData))
+  .digest();
+const result = await solana.initializeContract(
+  contractId,
+  contractHash,
+  depositLamports,
+  landlordWallet,
+);
 // result.tx_signature, result.pda_address, result.explorer_url
 
 // 2. Build lock_deposit transakcije za tenant potpis (POST /contracts/:id/accept)
-const { serialized_tx } = await solana.buildLockDepositTx(contractId, tenantWallet);
+const { serialized_tx } = await solana.buildLockDepositTx(
+  contractId,
+  tenantWallet,
+);
 // Pošalji serialized_tx mobilnoj aplikaciji — tenant potpisuje i broadcastuje
 
 // 3. Zapis check-in hasha (POST /contracts/:id/checkin/approve)
-const imageHash = SolanaService.hashImages(imageHashArray);  // static helper
-const { tx_signature } = await solana.recordCheckin(contractId, imageHash, landlordWallet);
+const imageHash = solana.hashImages(imageHashArray);
+const { tx_signature } = await solana.recordCheckin(
+  contractId,
+  imageHash,
+  landlordWallet,
+);
 
 // 4. Zapis check-out hasha (POST /contracts/:id/checkout/approve)
-const imageHash = SolanaService.hashImages(imageHashArray);
-const { tx_signature } = await solana.recordCheckout(contractId, imageHash, tenantWallet);
+const imageHash = solana.hashImages(imageHashArray);
+const { tx_signature } = await solana.recordCheckout(
+  contractId,
+  imageHash,
+  tenantWallet,
+);
 
-// 5. Izvršavanje settlement-a (POST /contracts/:id/finalize)
-const settlementHash = crypto.createHash('sha256').update(JSON.stringify(settlement)).digest();
+// 5. Izvršavanje settlement-a (POST /contracts/:id/settlement/approve — finalizacija)
+const settlementHash = crypto
+  .createHash("sha256")
+  .update(JSON.stringify(settlement))
+  .digest();
 const result = await solana.executeSettlement(
-  contractId, settlementHash,
-  tenantLamports, landlordLamports,
-  tenantWallet, landlordWallet
+  contractId,
+  settlementHash,
+  tenantLamports,
+  landlordLamports,
+  tenantWallet,
+  landlordWallet,
 );
 
 // 6. EUR → lamports konverzija
@@ -364,6 +413,7 @@ SOLANA_AUTHORITY_KEYPAIR=[1,2,3,...,64]
 ### Korak 3: Verifikacija
 
 Server factory u `src/services/solana/index.ts` automatski detektuje `SOLANA_PROGRAM_ID`:
+
 - Ako je setovan → instancira pravu `SolanaService` iz `@rentsmart/blockchain`
 - Ako nije setovan → koristi `MockSolanaService` (server radi bez blockchaina)
 
@@ -395,6 +445,7 @@ anchor test
 ```
 
 Testovi pokrivaju:
+
 - `initialize` — kreira PDA sa ispravnim podacima
 - `lock_deposit` — tenant SOL se zaključava u PDA
 - `record_checkin` — hash se zapisuje, state se mijenja
@@ -455,13 +506,14 @@ npx tsx -e "
 
 Server u `app/server/src/services/solana/ISolanaService.ts` sadrži kopiju `ISolanaService` interfejsa. Ovi fajlovi moraju ostati u sinku:
 
-| Fajl u blockchain modulu | Odgovarajući fajl u serveru |
-|--------------------------|----------------------------|
+| Fajl u blockchain modulu  | Odgovarajući fajl u serveru             |
+| ------------------------- | --------------------------------------- |
 | `client/src/interface.ts` | `src/services/solana/ISolanaService.ts` |
 
 **Izvor istine:** `client/src/interface.ts` u blockchain modulu (jer blockchain implementira interfejs).
 
 Ako dodaješ novu metodu u `SolanaService`:
+
 1. Dodaj je u `client/src/interface.ts`
 2. Implementiraj je u `client/src/solanaService.ts`
 3. Obavijesti server developera da doda isti potpis u `src/services/solana/ISolanaService.ts`

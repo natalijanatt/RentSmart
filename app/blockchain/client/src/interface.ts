@@ -28,6 +28,8 @@ export interface SolanaAgreement {
   checkin_hash: string;         // hex string
   checkout_hash: string;        // hex string
   settlement_hash: string;      // hex string
+  created_at: number;           // Unix timestamp of contract initialization
+  explorer_url: string;         // Solana Explorer URL for the PDA account
 }
 
 export interface ISolanaService {
@@ -76,7 +78,7 @@ export interface ISolanaService {
   ): Promise<{ tx_signature: string }>;
 
   /**
-   * Called on POST /contracts/:id/finalize.
+   * Called on POST /contracts/:id/settlement/approve (when second side approves).
    * Releases escrowed SOL to tenant and landlord per the rule engine settlement.
    */
   executeSettlement(

@@ -215,6 +215,8 @@ export class SolanaService implements ISolanaService {
         checkin_hash: Buffer.from(account.checkinHash as number[]).toString('hex'),
         checkout_hash: Buffer.from(account.checkoutHash as number[]).toString('hex'),
         settlement_hash: Buffer.from(account.settlementHash as number[]).toString('hex'),
+        created_at: (account.createdAt as BN).toNumber(),
+        explorer_url: `https://explorer.solana.com/address/${pda.toBase58()}?cluster=devnet`,
       };
     } catch {
       // Account not found (contract not yet initialized or wrong network)
