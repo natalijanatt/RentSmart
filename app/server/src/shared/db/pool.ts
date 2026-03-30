@@ -1,7 +1,10 @@
 import pg from 'pg';
+import { createClient } from '@supabase/supabase-js';
 import { env } from '../../config/env.js';
 
 const { Pool } = pg;
+
+// ── PostgreSQL — for ALL data queries ────────────────────────────────────────
 
 export const pool = new Pool({
   connectionString: env.DATABASE_URL,
@@ -14,3 +17,7 @@ export const pool = new Pool({
 pool.on('error', (err) => {
   console.error('Unexpected DB pool error:', err);
 });
+
+// ── Supabase — for Storage operations ONLY (image upload/download) ───────────
+
+export const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY);

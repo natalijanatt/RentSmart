@@ -1,5 +1,5 @@
 import type { PoolClient, QueryResultRow } from 'pg';
-export { pool } from './pool.js';
+export { pool, supabase } from './pool.js';
 
 import { pool } from './pool.js';
 
