@@ -2,32 +2,30 @@ import multer from 'multer';
 import { Router } from 'express';
 import { z } from 'zod';
 
+import type { InspectionType } from '@rentsmart/contracts';
+
 import { requireAuth } from '../../shared/middleware/auth.js';
 import { asyncHandler } from '../../shared/middleware/errorHandler.js';
 import { AppError } from '../../shared/utils/errors.js';
 import {
-  startCheckin,
-  uploadCheckinImages,
-  completeCheckin,
-  approveCheckin,
-  rejectCheckin,
-  getCheckinImages,
-  startCheckout,
-  uploadCheckoutImages,
-  completeCheckout,
-  approveCheckout,
-  rejectCheckout,
+  startInspection,
+  uploadInspectionImages,
+  completeInspection,
+  approveInspection,
+  rejectInspection,
+  getInspectionImages,
 } from './inspections.service.js';
+import { runAnalysis } from '../analysis/analysis.service.js';
 
 export const inspectionsRouter = Router();
 
 // multer: store files in memory for Supabase upload
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024, files: 10 }, // 20MB per file, max 10 files
+  limits: { fileSize: 10 * 1024 * 1024, files: 10 }, // 10MB per file, max 10 files
   fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
-      return cb(new Error('Only image files are allowed'));
+    if (file.mimetype !== 'image/jpeg' && file.mimetype !== 'image/png') {
+      return cb(new Error('Only JPEG and PNG images are allowed'));
     }
     cb(null, true);
   },
@@ -78,128 +76,93 @@ function parseImageMetadata(body: Record<string, unknown>, fileCount: number) {
   };
 }
 
-// ── Check-in routes ───────────────────────────────────────────────────────────
+// ── Generic inspection route factory ──────────────────────────────────────────
 
-// POST /api/v1/contracts/:id/checkin/start
-inspectionsRouter.post(
-  '/:id/checkin/start',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const contract = await startCheckin(req.params.id, req.user!.id);
-    res.json({ contract });
-  }),
-);
+function registerInspectionRoutes(type: InspectionType): void {
+  const typeStr = type === 'checkin' ? 'checkin' : 'checkout';
 
-// POST /api/v1/contracts/:id/checkin/images
-inspectionsRouter.post(
-  '/:id/checkin/images',
-  requireAuth,
-  upload.array('images[]'),
-  asyncHandler(async (req, res) => {
-    const files = req.files as Express.Multer.File[];
-    if (!files || files.length === 0) throw AppError.badRequest('No images uploaded.');
-    const metadata = parseImageMetadata(req.body as Record<string, unknown>, files.length);
-    const images = await uploadCheckinImages(req.params.id, req.user!.id, files, metadata);
-    res.json({ images });
-  }),
-);
+  // POST /api/v1/contracts/:id/{checkin|checkout}/start
+  inspectionsRouter.post(
+    `/:id/${typeStr}/start`,
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const contractId = req.params.id as string;
+      const contract = await startInspection(contractId, req.user!.id, type);
+      res.json({ contract });
+    }),
+  );
 
-// POST /api/v1/contracts/:id/checkin/complete
-inspectionsRouter.post(
-  '/:id/checkin/complete',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const contract = await completeCheckin(req.params.id, req.user!.id);
-    res.json({ contract });
-  }),
-);
+  // POST /api/v1/contracts/:id/{checkin|checkout}/images
+  inspectionsRouter.post(
+    `/:id/${typeStr}/images`,
+    requireAuth,
+    upload.array('images', 10),
+    asyncHandler(async (req, res) => {
+      const contractId = req.params.id as string;
+      const files = req.files as Express.Multer.File[];
+      if (!files || files.length === 0) throw AppError.badRequest('No images uploaded.');
+      const metadata = parseImageMetadata(req.body as Record<string, unknown>, files.length);
+      const images = await uploadInspectionImages(contractId, req.user!.id, type, files, metadata);
+      res.json({ images });
+    }),
+  );
 
-// POST /api/v1/contracts/:id/checkin/approve
-inspectionsRouter.post(
-  '/:id/checkin/approve',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const contract = await approveCheckin(req.params.id, req.user!.id);
-    res.json({ contract });
-  }),
-);
+  // POST /api/v1/contracts/:id/{checkin|checkout}/complete
+  inspectionsRouter.post(
+    `/:id/${typeStr}/complete`,
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const contractId = req.params.id as string;
+      const contract = await completeInspection(contractId, req.user!.id, type);
+      res.json({ contract });
+    }),
+  );
 
-// POST /api/v1/contracts/:id/checkin/reject
-inspectionsRouter.post(
-  '/:id/checkin/reject',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const parsed = rejectBodySchema.safeParse(req.body);
-    if (!parsed.success) throw AppError.badRequest('comment is required (1-500 chars).');
-    const contract = await rejectCheckin(req.params.id, req.user!.id, parsed.data.comment);
-    res.json({ contract });
-  }),
-);
+  // POST /api/v1/contracts/:id/{checkin|checkout}/approve
+  inspectionsRouter.post(
+    `/:id/${typeStr}/approve`,
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const contractId = req.params.id as string;
+      const contract = await approveInspection(contractId, req.user!.id, type);
+      res.json({ contract });
 
-// GET /api/v1/contracts/:id/checkin/images
-inspectionsRouter.get(
-  '/:id/checkin/images',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const images = await getCheckinImages(req.params.id, req.user!.id);
-    res.json({ images });
-  }),
-);
+      // Fire-and-forget: run analysis in background after checkout approval only
+      if (type === 'checkout') {
+        setImmediate(() => {
+          runAnalysis(contractId).catch((err) => {
+            console.error(`Auto-analysis failed for contract ${contractId}:`, err);
+          });
+        });
+      }
+    }),
+  );
 
-// ── Check-out routes ──────────────────────────────────────────────────────────
+  // POST /api/v1/contracts/:id/{checkin|checkout}/reject
+  inspectionsRouter.post(
+    `/:id/${typeStr}/reject`,
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const contractId = req.params.id as string;
+      const parsed = rejectBodySchema.safeParse(req.body);
+      if (!parsed.success) throw AppError.badRequest('comment is required (1-500 chars).');
+      const contract = await rejectInspection(contractId, req.user!.id, type, parsed.data.comment);
+      res.json({ contract });
+    }),
+  );
 
-// POST /api/v1/contracts/:id/checkout/start
-inspectionsRouter.post(
-  '/:id/checkout/start',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const contract = await startCheckout(req.params.id, req.user!.id);
-    res.json({ contract });
-  }),
-);
+  // GET /api/v1/contracts/:id/{checkin|checkout}/images
+  inspectionsRouter.get(
+    `/:id/${typeStr}/images`,
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const contractId = req.params.id as string;
+      const images = await getInspectionImages(contractId, req.user!.id, type);
+      res.json({ images });
+    }),
+  );
+}
 
-// POST /api/v1/contracts/:id/checkout/images
-inspectionsRouter.post(
-  '/:id/checkout/images',
-  requireAuth,
-  upload.array('images[]'),
-  asyncHandler(async (req, res) => {
-    const files = req.files as Express.Multer.File[];
-    if (!files || files.length === 0) throw AppError.badRequest('No images uploaded.');
-    const metadata = parseImageMetadata(req.body as Record<string, unknown>, files.length);
-    const images = await uploadCheckoutImages(req.params.id, req.user!.id, files, metadata);
-    res.json({ images });
-  }),
-);
-
-// POST /api/v1/contracts/:id/checkout/complete
-inspectionsRouter.post(
-  '/:id/checkout/complete',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const contract = await completeCheckout(req.params.id, req.user!.id);
-    res.json({ contract });
-  }),
-);
-
-// POST /api/v1/contracts/:id/checkout/approve
-inspectionsRouter.post(
-  '/:id/checkout/approve',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const contract = await approveCheckout(req.params.id, req.user!.id);
-    res.json({ contract });
-  }),
-);
-
-// POST /api/v1/contracts/:id/checkout/reject
-inspectionsRouter.post(
-  '/:id/checkout/reject',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const parsed = rejectBodySchema.safeParse(req.body);
-    if (!parsed.success) throw AppError.badRequest('comment is required (1-500 chars).');
-    const contract = await rejectCheckout(req.params.id, req.user!.id, parsed.data.comment);
-    res.json({ contract });
-  }),
-);
+// Register routes for both inspection types
+registerInspectionRoutes('checkin');
+registerInspectionRoutes('checkout');

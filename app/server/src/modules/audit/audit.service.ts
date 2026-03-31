@@ -7,6 +7,16 @@ import type { DbAuditEvent } from '../../shared/types/index.js';
 import { AppError } from '../../shared/utils/errors.js';
 import { sha256Chain } from '../../shared/utils/hash.js';
 
+/** Deterministic JSON serialization — sorts keys recursively to prevent JSONB reordering issues. */
+function stableStringify(value: unknown): string {
+  if (value === null || value === undefined) return JSON.stringify(value);
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
+  const obj = value as Record<string, unknown>;
+  const sorted = Object.keys(obj).sort().map((k) => JSON.stringify(k) + ':' + stableStringify(obj[k]));
+  return '{' + sorted.join(',') + '}';
+}
+
 function toAuditEvent(db: DbAuditEvent): AuditEvent {
   return {
     id: db.id,
@@ -45,8 +55,8 @@ export async function logAuditEvent(
   const previousHash = lastEvent?.event_hash ?? '';
   const now = new Date();
 
-  // Key order must remain stable — hash chain depends on it
-  const hashInput = JSON.stringify({
+  // Use stableStringify so JSONB key reordering doesn't break the chain on read-back
+  const hashInput = stableStringify({
     contract_id: contractId,
     event_type: eventType,
     actor_id: actorId,
@@ -98,7 +108,7 @@ export async function getAuditTrail(
   let prevHash = '';
 
   for (const event of events) {
-    const hashInput = JSON.stringify({
+    const hashInput = stableStringify({
       contract_id: event.contract_id,
       event_type: event.event_type,
       actor_id: event.actor_id,

@@ -1,7 +1,7 @@
-import type { ISolanaService } from './ISolanaService';
-import { MockSolanaService } from './MockSolanaService';
+import type { ISolanaService } from './ISolanaService.js';
+import { MockSolanaService } from './MockSolanaService.js';
 
-export type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaSettlementResult } from './ISolanaService';
+export type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaSettlementResult } from './ISolanaService.js';
 
 /**
  * Factory: returns the real SolanaService when SOLANA_PROGRAM_ID is set and
@@ -17,12 +17,10 @@ export type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaSettlemen
  *   3. Restart server — factory will auto-pick up the real implementation
  *   4. Logs change from [MockSolana] to [Solana] prefix
  */
-export function createSolanaService(): ISolanaService {
+export async function createSolanaService(): Promise<ISolanaService> {
   if (process.env.SOLANA_PROGRAM_ID) {
     try {
-      // Dynamic require — @rentsmart/blockchain is an optional dependency.
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { SolanaService } = require('@rentsmart/blockchain') as {
+      const { SolanaService } = (await import('@rentsmart/blockchain')) as {
         SolanaService: new () => ISolanaService;
       };
       console.log('[Solana] Using real SolanaService from @rentsmart/blockchain');

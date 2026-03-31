@@ -1,52 +1,14 @@
 import type { PoolClient } from 'pg';
 
-import type { Contract, CreateContractBody, Room } from '@rentsmart/contracts';
+import type { Contract, CreateContractBody } from '@rentsmart/contracts';
 
 import { query, queryOne, withTransaction } from '../../shared/db/index.js';
 import type { DbContract, DbRoom } from '../../shared/types/index.js';
 import { AppError } from '../../shared/utils/errors.js';
 import { sha256 } from '../../shared/utils/hash.js';
+import { toContract } from '../../shared/utils/mappers.js';
 import { logAuditEvent } from '../audit/audit.service.js';
 import { assertCancellable, validateTransition } from './state-machine.js';
-
-function toRoom(db: DbRoom): Room {
-  return {
-    id: db.id,
-    contract_id: db.contract_id,
-    room_type: db.room_type as Room['room_type'],
-    custom_name: db.custom_name,
-    is_mandatory: db.is_mandatory,
-    display_order: db.display_order,
-  };
-}
-
-function toContract(db: DbContract, rooms: DbRoom[]): Contract {
-  return {
-    id: db.id,
-    landlord_id: db.landlord_id,
-    tenant_id: db.tenant_id,
-    invite_code: db.invite_code,
-    property_address: db.property_address,
-    property_gps_lat: db.property_gps_lat !== null ? parseFloat(db.property_gps_lat) : null,
-    property_gps_lng: db.property_gps_lng !== null ? parseFloat(db.property_gps_lng) : null,
-    rent_monthly_eur: parseFloat(db.rent_monthly_eur),
-    deposit_amount_eur: parseFloat(db.deposit_amount_eur),
-    start_date: db.start_date.toISOString(),
-    end_date: db.end_date.toISOString(),
-    deposit_rules: db.deposit_rules,
-    notes: db.notes,
-    plain_language_summary: db.plain_language_summary,
-    status: db.status as Contract['status'],
-    deposit_status: db.deposit_status,
-    contract_hash: db.contract_hash,
-    rejection_comment: db.rejection_comment,
-    solana_pda: db.solana_pda,
-    solana_tx_init: db.solana_tx_init,
-    created_at: db.created_at.toISOString(),
-    updated_at: db.updated_at.toISOString(),
-    rooms: rooms.map(toRoom),
-  };
-}
 
 function generateInviteCode(): string {
   const charset = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -134,6 +96,15 @@ export async function createContract(
       landlordId,
       'landlord',
       { invite_code: inviteCode, property_address: body.property_address },
+      client,
+    );
+
+    await logAuditEvent(
+      contractRow.id,
+      'INVITE_SENT',
+      landlordId,
+      'landlord',
+      { invite_code: inviteCode },
       client,
     );
 
@@ -250,6 +221,8 @@ export async function cancelContract(
 
     assertCancellable(contractRow.status as Contract['status']);
 
+    // Business rule: before acceptance, only the landlord (who created the contract) can cancel.
+    // The tenant hasn't joined yet, so they have no standing to cancel.
     if (contractRow.status === 'pending_acceptance' && !isLandlord) {
       throw AppError.forbidden('Only the landlord can cancel before the contract is accepted.');
     }
