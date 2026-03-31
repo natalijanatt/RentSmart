@@ -33,7 +33,20 @@ export async function createContract(
   body: CreateContractBody,
 ): Promise<Contract> {
   return withTransaction(async (client) => {
-    const inviteCode = generateInviteCode();
+    // Generate unique invite code with collision retry
+    let inviteCode = generateInviteCode();
+    const MAX_RETRIES = 5;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const existing = await client.query(
+        `SELECT 1 FROM contracts WHERE invite_code = $1`,
+        [inviteCode],
+      );
+      if (existing.rows.length === 0) break;
+      if (attempt === MAX_RETRIES - 1) {
+        throw AppError.internal('Failed to generate unique invite code after retries.');
+      }
+      inviteCode = generateInviteCode();
+    }
 
     const contractHash = sha256(
       JSON.stringify({
@@ -55,7 +68,7 @@ export async function createContract(
          (landlord_id, invite_code, property_address, property_gps_lat, property_gps_lng,
           rent_monthly_eur, deposit_amount_eur, start_date, end_date,
           deposit_rules, notes, plain_language_summary, status, deposit_status, contract_hash)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'draft', 'pending', $13)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending_acceptance', 'pending', $13)
        RETURNING *`,
       [
         landlordId,
@@ -164,7 +177,7 @@ export async function getContractByInviteCode(code: string): Promise<Contract> {
   return toContract(contractRow, roomRows);
 }
 
-export async function acceptContract(contractId: string, tenantId: string): Promise<Contract> {
+export async function acceptContract(contractId: string, tenantId: string, inviteCode: string): Promise<Contract> {
   return withTransaction(async (client) => {
     const result = await client.query<DbContract>(
       `SELECT * FROM contracts WHERE id = $1 FOR UPDATE`,
@@ -173,6 +186,9 @@ export async function acceptContract(contractId: string, tenantId: string): Prom
     const contractRow = result.rows[0];
 
     if (!contractRow) throw AppError.notFound('Contract not found.');
+    if (contractRow.invite_code !== inviteCode) {
+      throw AppError.forbidden('Invalid invite code.');
+    }
     if (tenantId === contractRow.landlord_id) {
       throw AppError.conflict('You are already the landlord on this contract.');
     }

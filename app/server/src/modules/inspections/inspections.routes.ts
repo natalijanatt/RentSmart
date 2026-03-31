@@ -15,7 +15,6 @@ import {
   rejectInspection,
   getInspectionImages,
 } from './inspections.service.js';
-import { runAnalysis } from '../analysis/analysis.service.js';
 
 export const inspectionsRouter = Router();
 
@@ -126,15 +125,6 @@ function registerInspectionRoutes(type: InspectionType): void {
       const contractId = req.params.id as string;
       const contract = await approveInspection(contractId, req.user!.id, type);
       res.json({ contract });
-
-      // Fire-and-forget: run analysis in background after checkout approval only
-      if (type === 'checkout') {
-        setImmediate(() => {
-          runAnalysis(contractId).catch((err) => {
-            console.error(`Auto-analysis failed for contract ${contractId}:`, err);
-          });
-        });
-      }
     }),
   );
 

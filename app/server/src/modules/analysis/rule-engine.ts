@@ -53,7 +53,7 @@ export function computeSettlement(
         continue;
       }
 
-      const deductionPercent = SEVERITY_DEDUCTION_PERCENT[finding.severity] ?? 5;
+      const deductionPercent = SEVERITY_DEDUCTION_PERCENT[finding.severity] ?? 0;
       const deductionEur = (depositAmountEur * deductionPercent) / 100;
 
       deductions.push({

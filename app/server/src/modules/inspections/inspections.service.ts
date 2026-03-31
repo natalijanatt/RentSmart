@@ -192,8 +192,17 @@ export async function startInspection(
     assertActor(actorId, c, cfg.startActor, `start ${type === 'checkin' ? 'check-in' : 'check-out'}`);
     validateTransition(c.status as Contract['status'], cfg.inProgressStatus, cfg.startActor);
 
+    // If restarting after rejection, delete old images and clear rejection_comment
+    const isRejectionRestart = c.status === cfg.rejectedStatus;
+    if (isRejectionRestart) {
+      await client.query(
+        `DELETE FROM inspection_images WHERE contract_id = $1 AND inspection_type = $2`,
+        [contractId, type],
+      );
+    }
+
     const updated = await client.query<DbContract>(
-      `UPDATE contracts SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      `UPDATE contracts SET status = $1, rejection_comment = ${isRejectionRestart ? 'NULL' : 'rejection_comment'}, updated_at = NOW() WHERE id = $2 RETURNING *`,
       [cfg.inProgressStatus, contractId],
     );
     const updatedRow = updated.rows[0];
@@ -251,6 +260,22 @@ export async function uploadInspectionImages(
       body.gps_lat[i] ?? null,
       body.gps_lng[i] ?? null,
     );
+  }
+
+  // Validate device consistency: all images in this inspection must come from the same device
+  const existingDevice = await queryOne<{ device_id: string }>(
+    `SELECT DISTINCT device_id FROM inspection_images
+     WHERE contract_id = $1 AND inspection_type = $2
+     LIMIT 1`,
+    [contractId, type],
+  );
+  const expectedDeviceId = existingDevice?.device_id ?? body.device_id[0];
+  for (const deviceId of body.device_id) {
+    if (deviceId !== expectedDeviceId) {
+      throw AppError.badRequest(
+        `All images in an inspection must come from the same device. Expected "${expectedDeviceId}", got "${deviceId}".`,
+      );
+    }
   }
 
   // Query existing image count so new indices don't collide with prior uploads
@@ -317,6 +342,25 @@ export async function completeInspection(
 
     assertActor(actorId, c, cfg.completeActor, `complete ${type === 'checkin' ? 'check-in' : 'check-out'}`);
     validateTransition(c.status as Contract['status'], cfg.pendingApprovalStatus, cfg.completeActor);
+
+    // Validate all mandatory rooms have ≥3 images
+    const mandatoryRooms = await client.query<DbRoom>(
+      `SELECT * FROM rooms WHERE contract_id = $1 AND is_mandatory = true`,
+      [contractId],
+    );
+    for (const room of mandatoryRooms.rows) {
+      const imgCount = await client.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM inspection_images
+         WHERE contract_id = $1 AND room_id = $2 AND inspection_type = $3`,
+        [contractId, room.id, type],
+      );
+      const count = parseInt(imgCount.rows[0]?.count ?? '0', 10);
+      if (count < 3) {
+        throw AppError.badRequest(
+          `Mandatory room "${room.custom_name ?? room.room_type}" requires at least 3 images (has ${count}).`,
+        );
+      }
+    }
 
     const updated = await client.query<DbContract>(
       `UPDATE contracts SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,

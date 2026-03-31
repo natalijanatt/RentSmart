@@ -9,7 +9,7 @@ interface TransitionRule {
 }
 
 const TRANSITIONS: TransitionRule[] = [
-  { from: 'draft',                     to: 'accepted',                  actor: 'tenant'   },
+  { from: 'pending_acceptance',         to: 'accepted',                  actor: 'tenant'   },
   { from: 'accepted',                  to: 'checkin_in_progress',       actor: 'landlord' },
   { from: 'checkin_in_progress',       to: 'checkin_pending_approval',  actor: 'landlord' },
   { from: 'checkin_pending_approval',  to: 'active',                    actor: 'tenant'   },
@@ -24,7 +24,7 @@ const TRANSITIONS: TransitionRule[] = [
   { from: 'settlement',                to: 'completed',                 actor: 'both'     },
 ];
 
-const CANCELLABLE_STATUSES: ContractStatus[] = ['draft', 'accepted'];
+const CANCELLABLE_STATUSES: ContractStatus[] = ['pending_acceptance', 'accepted'];
 
 export function validateTransition(
   from: ContractStatus,

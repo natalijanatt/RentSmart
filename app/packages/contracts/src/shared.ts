@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const contractStatusSchema = z.enum([
-  'draft',
+  'pending_acceptance',
   'accepted',
   'checkin_in_progress',
   'checkin_pending_approval',

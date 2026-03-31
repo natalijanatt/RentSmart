@@ -156,14 +156,28 @@ export async function runAnalysis(contractId: string): Promise<Settlement> {
     let summary = '';
     let overallCondition = 'unknown';
 
+    // 3-tier JSON parsing fallback
+    // Strip markdown code fences before parsing
+    const cleaned = rawContent.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+
+    // Tier 1: direct JSON.parse
     try {
-      parsed = JSON.parse(rawContent) as typeof parsed;
-      findings = Array.isArray(parsed.findings) ? clampFindings(parsed.findings) : [];
-      summary = parsed.summary ?? '';
-      overallCondition = parsed.overall_condition ?? 'unknown';
+      parsed = JSON.parse(cleaned) as typeof parsed;
     } catch {
-      // Store raw on parse failure; findings stay empty
+      // Tier 2: regex extraction for JSON wrapped in text
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          parsed = JSON.parse(jsonMatch[0]) as typeof parsed;
+        } catch {
+          // Tier 3: fallback with empty findings
+          parsed = {};
+        }
+      }
     }
+    findings = Array.isArray(parsed.findings) ? clampFindings(parsed.findings) : [];
+    summary = parsed.summary ?? '';
+    overallCondition = parsed.overall_condition ?? 'unknown';
 
     const row = await queryOne<DbAnalysisResult>(
       `INSERT INTO analysis_results
@@ -224,12 +238,6 @@ export async function runAnalysis(contractId: string): Promise<Settlement> {
     const dbSettlement = settlementRow.rows[0];
     if (!dbSettlement) throw AppError.internal('Failed to insert settlement.');
 
-    await logAuditEvent(contractId, 'SETTLEMENT_PROPOSED', null, 'system', {
-      settlement_id: dbSettlement.id,
-      total_deduction_eur: computation.total_deduction_eur,
-      settlement_type: computation.settlement_type,
-    }, client);
-
     validateTransition('pending_analysis', 'settlement', 'system');
 
     await client.query(
@@ -241,6 +249,12 @@ export async function runAnalysis(contractId: string): Promise<Settlement> {
       deductions_count: computation.deductions.length,
       skipped_count: computation.skipped_findings.length,
       requires_manual_review: computation.requires_manual_review,
+    }, client);
+
+    await logAuditEvent(contractId, 'SETTLEMENT_PROPOSED', null, 'system', {
+      settlement_id: dbSettlement.id,
+      total_deduction_eur: computation.total_deduction_eur,
+      settlement_type: computation.settlement_type,
     }, client);
 
     return dbSettlement;
