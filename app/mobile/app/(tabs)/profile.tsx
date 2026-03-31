@@ -1,17 +1,44 @@
 import React from 'react';
-import { StyleSheet, View, Text, SafeAreaView, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, ScrollView, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
-import { Button, Card, Divider } from '../../components';
-import { Colors, Spacing, Typography } from '../../constants/theme';
+import { useContractsStore } from '../../store/contractsStore';
+import { Button, Card, Badge, Divider } from '../../components';
+import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
 import { getInitials } from '../../utils/formatters';
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuthStore();
+  const { user, userRole, setUserRole, logout } = useAuthStore();
+  const { reset: resetContracts } = useContractsStore();
 
   const handleLogout = () => {
-    logout();
-    router.replace('/(auth)/login');
+    Alert.alert('Odjava', 'Da li ste sigurni da želite da se odjavite?', [
+      { text: 'Otkaži', style: 'cancel' },
+      {
+        text: 'Odjavi se',
+        style: 'destructive',
+        onPress: () => {
+          logout();
+          resetContracts();
+          router.replace('/(auth)/login');
+        },
+      },
+    ]);
+  };
+
+  const handleSwitchRole = () => {
+    const newRole = userRole === 'landlord' ? 'tenant' : 'landlord';
+    Alert.alert(
+      'Promeni tip korisnika',
+      `Da li želite da se prebacite na ${newRole === 'landlord' ? 'stanodavca' : 'zakupca'}?`,
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: 'Promeni',
+          onPress: () => setUserRole(newRole),
+        },
+      ]
+    );
   };
 
   return (
@@ -27,59 +54,72 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.userInfo}>
               <Text style={[styles.userName, Typography.heading3]}>
-                {user?.display_name || 'User'}
+                {user?.display_name || 'Korisnik'}
               </Text>
               <Text style={[styles.userPhone, Typography.body]}>
                 {user?.phone || 'N/A'}
               </Text>
+              <Badge
+                label={userRole === 'landlord' ? 'Stanodavac' : 'Zakupac'}
+                variant={userRole === 'landlord' ? 'info' : 'primary'}
+                size="small"
+              />
             </View>
           </View>
         </Card>
 
         {/* Account Information */}
         <Card style={styles.card}>
-          <Text style={[styles.sectionTitle, Typography.heading4]}>Account Information</Text>
+          <Text style={[styles.sectionTitle, Typography.heading4]}>Informacije o nalogu</Text>
           <Divider />
           <View style={styles.infoRow}>
-            <Text style={[styles.infoLabel, Typography.body]}>User ID</Text>
-            <Text style={[styles.infoValue, Typography.caption]}>
-              {user?.id?.substring(0, 8)}...
+            <Text style={[styles.infoLabel, Typography.body]}>Tip korisnika</Text>
+            <Text style={[styles.infoValue, Typography.body]}>
+              {userRole === 'landlord' ? 'Stanodavac' : 'Zakupac'}
             </Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={[styles.infoLabel, Typography.body]}>Device ID</Text>
+            <Text style={[styles.infoLabel, Typography.body]}>ID korisnika</Text>
             <Text style={[styles.infoValue, Typography.caption]}>
-              {user?.device_id?.substring(0, 8)}...
+              {user?.id?.substring(0, 12)}...
+            </Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, Typography.body]}>ID uređaja</Text>
+            <Text style={[styles.infoValue, Typography.caption]}>
+              {user?.device_id?.substring(0, 12)}...
             </Text>
           </View>
           {user?.solana_pubkey && (
             <View style={styles.infoRow}>
-              <Text style={[styles.infoLabel, Typography.body]}>Solana Wallet</Text>
+              <Text style={[styles.infoLabel, Typography.body]}>Solana novčanik</Text>
               <Text style={[styles.infoValue, Typography.caption]}>
-                {user.solana_pubkey.substring(0, 8)}...
+                {user.solana_pubkey.substring(0, 12)}...
               </Text>
             </View>
           )}
         </Card>
 
-        {/* Preferences */}
-        <Card style={styles.card}>
-          <Text style={[styles.sectionTitle, Typography.heading4]}>Preferences</Text>
-          <Divider />
-          <Text style={[styles.preferenceHint, Typography.body]}>
-            More settings coming soon
-          </Text>
-        </Card>
-
-        {/* Logout */}
+        {/* Actions */}
         <View style={styles.actions}>
           <Button
-            label="Logout"
+            label={`Prebaci na ${userRole === 'landlord' ? 'zakupca' : 'stanodavca'}`}
+            onPress={handleSwitchRole}
+            variant="outline"
+            fullWidth
+          />
+          <Button
+            label="Odjavi se"
             onPress={handleLogout}
             variant="danger"
             fullWidth
+            style={styles.logoutButton}
           />
         </View>
+
+        <Text style={[styles.versionText, Typography.captionSmall]}>
+          RentSmart v1.0.0 (MVP)
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -101,9 +141,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
@@ -116,13 +156,13 @@ const styles = StyleSheet.create({
   },
   userInfo: {
     flex: 1,
+    gap: Spacing.xs,
   },
   userName: {
     color: Colors.text,
   },
   userPhone: {
     color: Colors.textSecondary,
-    marginTop: Spacing.xs,
   },
   card: {
     marginBottom: Spacing.md,
@@ -143,13 +183,18 @@ const styles = StyleSheet.create({
   },
   infoValue: {
     color: Colors.textSecondary,
-    fontSize: 12,
-  },
-  preferenceHint: {
-    color: Colors.textSecondary,
-    paddingVertical: Spacing.sm,
+    textAlign: 'right',
   },
   actions: {
     marginTop: Spacing.xl,
+    gap: Spacing.md,
+  },
+  logoutButton: {
+    marginTop: Spacing.sm,
+  },
+  versionText: {
+    color: Colors.textTertiary,
+    textAlign: 'center',
+    marginTop: Spacing.xxl,
   },
 });

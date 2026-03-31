@@ -60,6 +60,21 @@ export const truncateString = (str: string, length: number): string => {
 
 export const getContractStatusLabel = (status: string): string => {
   const labels: Record<string, string> = {
+    draft: 'Nacrt',
+    pending_acceptance: 'Čeka prihvatanje',
+    accepted: 'Prihvaćen',
+    checkin_in_progress: 'Check-in u toku',
+    checkin_pending_approval: 'Check-in čeka odobrenje',
+    checkin_rejected: 'Check-in odbijen',
+    active: 'Aktivan',
+    checkout_in_progress: 'Check-out u toku',
+    checkout_pending_approval: 'Check-out čeka odobrenje',
+    checkout_rejected: 'Check-out odbijen',
+    pending_analysis: 'Analiza u toku',
+    settlement: 'Poravnanje',
+    completed: 'Završen',
+    cancelled: 'Otkazan',
+    // Legacy uppercase keys
     CREATED: 'Kreirano',
     INVITED: 'Pozvan',
     ACCEPTED: 'Prihvaćen',

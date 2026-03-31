@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   KeyboardAvoidingView,
   Platform,
+  TouchableOpacity,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
@@ -16,17 +17,16 @@ import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme
 
 export default function LoginScreen() {
   const [phone, setPhone] = useState('+38161234567');
-  const [displayName, setDisplayName] = useState('');
   const [isOtpMode, setIsOtpMode] = useState(false);
   const [otp, setOtp] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const { setUser, setFirebaseToken } = useAuthStore();
+  const { setUser, setFirebaseToken, setUserRole } = useAuthStore();
 
   const handleRequestOtp = async () => {
     if (!phone) {
-      setError('Please enter a phone number');
+      setError('Unesite broj telefona');
       return;
     }
     // In a real app, Firebase would send OTP
@@ -36,7 +36,7 @@ export default function LoginScreen() {
 
   const handleVerifyOtp = async () => {
     if (!otp) {
-      setError('Please enter the OTP');
+      setError('Unesite OTP kod');
       return;
     }
 
@@ -46,27 +46,33 @@ export default function LoginScreen() {
     try {
       // Mock Firebase token
       const mockToken = 'firebase-token-' + Math.random().toString(36).substring(2);
-      
+
       const response = await authService.verifyAuth({
         firebase_token: mockToken,
-        display_name: displayName,
         device_id: 'device-' + Math.random().toString(36).substring(7),
       });
 
       setFirebaseToken(mockToken);
       setUser(response.user);
 
-      // Navigate to home or profile if name is missing
+      // If user has no display name or is new, go to register for profile completion + role
       if (!response.user.display_name) {
         router.replace('/(auth)/register');
       } else {
+        // Existing user — still need role selection if not set
+        // For mock, default to landlord for the demo user
+        setUserRole('landlord');
         router.replace('/(tabs)');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : 'Prijava nije uspela');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoToRegister = () => {
+    router.push('/(auth)/register');
   };
 
   return (
@@ -79,7 +85,7 @@ export default function LoginScreen() {
           <View style={styles.headerSection}>
             <Text style={[styles.title, Typography.heading1]}>RentSmart</Text>
             <Text style={[styles.subtitle, Typography.bodySmall]}>
-              Transparent rental agreements with blockchain support
+              Transparentni ugovori o zakupu sa blockchain podrškom
             </Text>
           </View>
 
@@ -89,22 +95,15 @@ export default function LoginScreen() {
             {!isOtpMode ? (
               <>
                 <InputField
-                  label="Phone Number"
+                  label="Broj telefona"
                   placeholder="+381 61 234 5678"
                   value={phone}
                   onChangeText={setPhone}
                   keyboardType="phone-pad"
                   editable={!loading}
                 />
-                <InputField
-                  label="Display Name (Optional)"
-                  placeholder="Your name"
-                  value={displayName}
-                  onChangeText={setDisplayName}
-                  editable={!loading}
-                />
                 <Button
-                  label="Send OTP"
+                  label="Pošalji OTP"
                   onPress={handleRequestOtp}
                   loading={loading}
                   fullWidth
@@ -113,10 +112,10 @@ export default function LoginScreen() {
             ) : (
               <>
                 <Text style={[styles.otpPrompt, Typography.body]}>
-                  Enter the 6-digit code sent to {phone}
+                  Unesite 6-cifreni kod poslat na {phone}
                 </Text>
                 <InputField
-                  label="One-Time Password"
+                  label="Jednokratna lozinka"
                   placeholder="000000"
                   value={otp}
                   onChangeText={setOtp}
@@ -125,13 +124,13 @@ export default function LoginScreen() {
                   editable={!loading}
                 />
                 <Button
-                  label="Verify OTP"
+                  label="Potvrdi OTP"
                   onPress={handleVerifyOtp}
                   loading={loading}
                   fullWidth
                 />
                 <Button
-                  label="Back"
+                  label="Nazad"
                   onPress={() => {
                     setIsOtpMode(false);
                     setOtp('');
@@ -143,17 +142,28 @@ export default function LoginScreen() {
                 />
               </>
             )}
+
+            <View style={styles.registerSection}>
+              <Text style={[styles.registerPrompt, Typography.body]}>
+                Nemate nalog?
+              </Text>
+              <TouchableOpacity onPress={handleGoToRegister} disabled={loading}>
+                <Text style={[styles.registerLink, Typography.bodySemibold]}>
+                  Registrujte se
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <View style={styles.footerSection}>
             <Text style={[styles.footerText, Typography.caption]}>
-              By logging in, you agree to our Terms of Service and Privacy Policy
+              Prijavom se slažete sa Uslovima korišćenja i Politikom privatnosti
             </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <LoadingOverlay visible={loading} message="Verifying..." />
+      <LoadingOverlay visible={loading} message="Provera..." />
     </SafeAreaView>
   );
 }
@@ -193,6 +203,19 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
     color: Colors.textSecondary,
     textAlign: 'center',
+  },
+  registerSection: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: Spacing.xxl,
+    gap: Spacing.sm,
+  },
+  registerPrompt: {
+    color: Colors.textSecondary,
+  },
+  registerLink: {
+    color: Colors.primary,
   },
   footerSection: {
     paddingVertical: Spacing.xl,

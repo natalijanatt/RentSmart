@@ -7,18 +7,18 @@ import {
   SafeAreaView,
   Image,
   Alert,
-  ActivityIndicator,
   FlatList,
   TouchableOpacity,
+  TextInput,
   Modal,
   Dimensions,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useAuthStore } from '../../../store/authStore';
 import { useContractsStore } from '../../../store/contractsStore';
 import { contractsService } from '../../../services';
-import { Button, Card, ProgressBar, ErrorMessage } from '../../../components';
+import { Button, Card, Badge, ProgressBar, ErrorMessage, Divider } from '../../../components';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../constants/theme';
-import * as FileSystem from 'expo-file-system';
 
 interface CapturedImage {
   uri: string;
@@ -30,36 +30,64 @@ interface CapturedImage {
   note?: string;
 }
 
-interface CheckinImage {
-  uri: string;
-  room: string;
-}
-
 export default function CheckoutReviewScreen() {
   const params = useLocalSearchParams();
-  const contractId = params.contractId as string;
-  
-  let checkoutImages: CapturedImage[] = [];
-  let checkinImages: CheckinImage[] = [];
-  
-  try {
-    checkoutImages = params.images ? JSON.parse(params.images as string) : [];
-    checkinImages = params.checkinImages ? JSON.parse(params.checkinImages as string) : [];
-  } catch (e) {
-    console.error('Failed to parse images:', e);
-  }
+  const contractId = params.contractId as string || params.id as string;
+  const mode = params.mode as string; // 'review' = landlord reviewing, else = tenant uploading
 
-  const { setInspection } = useContractsStore();
+  const { user } = useAuthStore();
+  const { contracts, setSelectedContract, setInspection } = useContractsStore();
+  const contract = contracts.find(c => c.id === contractId);
+
+  const isReviewMode = mode === 'review';
+  const isLandlord = user?.id === contract?.landlord_id;
+
+  // Images from camera capture (tenant upload flow)
+  let capturedImages: CapturedImage[] = [];
+  try {
+    capturedImages = params.images ? JSON.parse(params.images as string) : [];
+  } catch (e) {}
+
+  // Images from server (landlord review flow)
+  const [checkoutImages, setCheckoutImages] = useState<any[]>([]);
+  const [checkinImages, setCheckinImages] = useState<any[]>([]);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
-  const [showCheckinModal, setShowCheckinModal] = useState(false);
-  const [selectedCheckinImage, setSelectedCheckinImage] = useState<CheckinImage | null>(null);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectComment, setRejectComment] = useState('');
+  const [rejecting, setRejecting] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [showCompareModal, setShowCompareModal] = useState(false);
+  const [compareCheckinImage, setCompareCheckinImage] = useState<any>(null);
 
+  // Load server images for review mode
+  useEffect(() => {
+    if (isReviewMode && contractId) {
+      loadImages();
+    }
+  }, [isReviewMode, contractId]);
+
+  const loadImages = async () => {
+    try {
+      const [checkoutResp, checkinResp] = await Promise.all([
+        contractsService.getInspectionImages(contractId, 'checkout'),
+        contractsService.getInspectionImages(contractId, 'checkin'),
+      ]);
+      setCheckoutImages(checkoutResp.images);
+      setCheckinImages(checkinResp.images);
+    } catch (err) {
+      setError('Učitavanje slika nije uspelo');
+    }
+  };
+
+  const displayImages = isReviewMode ? checkoutImages : capturedImages;
+
+  // Tenant: upload captured images
   const handleUploadImages = async () => {
-    if (checkoutImages.length === 0) {
-      setError('No images to upload');
+    if (capturedImages.length === 0) {
+      setError('Nema slika za otpremanje');
       return;
     }
 
@@ -68,15 +96,8 @@ export default function CheckoutReviewScreen() {
     setUploadProgress(0);
 
     try {
-      // Upload each image
-      const uploadPromises = checkoutImages.map(async (image, index) => {
-        const fileContent = await FileSystem.readAsStringAsync(image.uri, {
-          encoding: 'base64',
-        });
-
-        // Simulate upload progress
-        setUploadProgress(Math.round(((index + 1) / checkoutImages.length) * 100));
-
+      const uploadPromises = capturedImages.map(async (image, index) => {
+        setUploadProgress(Math.round(((index + 1) / capturedImages.length) * 100));
         return {
           uri: image.uri,
           captured_at: image.timestamp,
@@ -90,31 +111,88 @@ export default function CheckoutReviewScreen() {
 
       const uploadedImages = await Promise.all(uploadPromises);
 
-      // Call backend to save inspection
       await contractsService.uploadInspectionImages(
         contractId,
-        'dummy-room-id',
+        'all-rooms',
         'checkout',
         uploadedImages as any
       );
 
       setInspection(contractId, { contractId, inspectionType: 'checkout', images: uploadedImages as any, roomId: null, isLoading: false });
 
-      Alert.alert('Success', 'Checkout photos uploaded successfully!', [
+      Alert.alert('Uspeh', 'Check-out slike su uspešno otpremljene!', [
         {
-          text: 'View Contract',
+          text: 'Pogledaj ugovor',
           onPress: () => router.replace({ pathname: '/contract/[id]', params: { id: contractId } }),
         },
       ]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload images');
+      setError(err instanceof Error ? err.message : 'Otpremanje slika nije uspelo');
     } finally {
       setUploading(false);
       setUploadProgress(0);
     }
   };
 
-  const renderImageItem = ({ item, index }: { item: CapturedImage; index: number }) => (
+  // Landlord: approve check-out → triggers analysis
+  const handleApprove = async () => {
+    Alert.alert(
+      'Odobri check-out',
+      'Da li ste sigurni? Odobravanjem check-out-a pokreće se AI analiza poređenja slika.',
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: 'Odobri',
+          onPress: async () => {
+            setApproving(true);
+            try {
+              if (contract) {
+                setSelectedContract({ ...contract, status: 'pending_analysis' as any });
+              }
+              Alert.alert('Uspeh', 'Check-out je odobren. AI analiza je pokrenuta.', [
+                {
+                  text: 'OK',
+                  onPress: () => router.replace({ pathname: '/contract/[id]', params: { id: contractId } }),
+                },
+              ]);
+            } catch (err) {
+              Alert.alert('Greška', 'Odobravanje check-out-a nije uspelo');
+            } finally {
+              setApproving(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Landlord: reject check-out
+  const handleReject = async () => {
+    if (!rejectComment.trim()) {
+      setError('Morate uneti razlog odbijanja');
+      return;
+    }
+
+    setRejecting(true);
+    try {
+      if (contract) {
+        setSelectedContract({ ...contract, status: 'checkout_rejected' as any, rejection_comment: rejectComment });
+      }
+      setShowRejectModal(false);
+      Alert.alert('Odbijeno', 'Check-out je odbijen. Zakupac će biti obavešten.', [
+        {
+          text: 'OK',
+          onPress: () => router.replace({ pathname: '/contract/[id]', params: { id: contractId } }),
+        },
+      ]);
+    } catch (err) {
+      Alert.alert('Greška', 'Odbijanje check-out-a nije uspelo');
+    } finally {
+      setRejecting(false);
+    }
+  };
+
+  const renderImageItem = ({ item, index }: { item: any; index: number }) => (
     <TouchableOpacity
       style={[
         styles.imageThumb,
@@ -122,51 +200,48 @@ export default function CheckoutReviewScreen() {
       ]}
       onPress={() => setSelectedImageIndex(index)}
     >
-      <Image source={{ uri: item.uri }} style={styles.imageThumbImage} />
+      <Image source={{ uri: item.uri || item.image_url }} style={styles.imageThumbImage} />
       <View style={styles.imageCounter}>
         <Text style={styles.imageCounterText}>{index + 1}</Text>
       </View>
     </TouchableOpacity>
   );
 
-  const selectedImage = selectedImageIndex !== null ? checkoutImages[selectedImageIndex] : null;
+  const selectedImage = selectedImageIndex !== null ? displayImages[selectedImageIndex] : null;
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={[styles.title, Typography.heading2]}>Review Check-out Images</Text>
-          <Text style={[styles.subtitle, Typography.bodySmall]}>
-            {checkoutImages.length} photos captured
+          <Text style={[styles.title, Typography.heading2]}>
+            {isReviewMode ? 'Pregled check-out slika' : 'Check-out slike'}
           </Text>
+          <Text style={[styles.subtitle, Typography.bodySmall]}>
+            {displayImages.length} fotografija{isReviewMode ? ' - pregledajte i odobrite ili odbijte' : ' snimljeno'}
+          </Text>
+          {isReviewMode && (
+            <Badge label="Čeka vaše odobrenje" variant="warning" size="small" />
+          )}
         </View>
 
         {error && <ErrorMessage message={error} />}
 
-        {/* Checkout Images Section */}
-        {/* Large Image Preview */}
+        {/* Selected Image Preview */}
         {selectedImage && (
           <Card style={styles.previewCard}>
-            <Image source={{ uri: selectedImage.uri }} style={styles.largeImage} />
+            <Image source={{ uri: selectedImage.uri || selectedImage.image_url }} style={styles.largeImage} />
             <View style={styles.imageInfoContainer}>
               <Text style={[styles.imageLabel, Typography.bodySemibold]}>
-                Checkout Image {selectedImageIndex! + 1} Details
+                Check-out slika {selectedImageIndex! + 1}
               </Text>
               <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, Typography.captionSmall]}>Captured:</Text>
+                <Text style={[styles.infoLabel, Typography.captionSmall]}>Snimljeno:</Text>
                 <Text style={[styles.infoValue, Typography.captionSmall]}>
-                  {new Date(selectedImage.timestamp).toLocaleString()}
+                  {new Date(selectedImage.timestamp || selectedImage.captured_at).toLocaleString()}
                 </Text>
               </View>
-              <View style={styles.infoRow}>
-                <Text style={[styles.infoLabel, Typography.captionSmall]}>GPS:</Text>
-                <Text style={[styles.infoValue, Typography.captionSmall]}>
-                  {selectedImage.latitude.toFixed(4)}, {selectedImage.longitude.toFixed(4)}
-                </Text>
-              </View>
-              {selectedImage.note && (
+              {(selectedImage.note) && (
                 <View style={styles.noteContainer}>
-                  <Text style={[styles.infoLabel, Typography.captionSmall]}>Note:</Text>
                   <Text style={[styles.noteText, Typography.body]}>{selectedImage.note}</Text>
                 </View>
               )}
@@ -174,11 +249,11 @@ export default function CheckoutReviewScreen() {
           </Card>
         )}
 
-        {/* Image Thumbnails */}
+        {/* Checkout Image Grid */}
         <Card style={styles.thumbnailsCard}>
-          <Text style={[Typography.heading4, styles.thumbnailsTitle]}>Checkout Photos</Text>
+          <Text style={[Typography.heading4, styles.thumbnailsTitle]}>Check-out fotografije</Text>
           <FlatList
-            data={checkoutImages}
+            data={displayImages}
             renderItem={renderImageItem}
             keyExtractor={(_, index) => `checkout-${index}`}
             numColumns={4}
@@ -188,14 +263,14 @@ export default function CheckoutReviewScreen() {
           />
         </Card>
 
-        {/* Checkin Images Reference */}
-        {checkinImages.length > 0 && (
+        {/* Check-in Reference (review mode) */}
+        {isReviewMode && checkinImages.length > 0 && (
           <Card style={styles.referenceCard}>
             <Text style={[Typography.heading4, styles.referenceTitle]}>
-              Check-in Reference Photos
+              Check-in referentne slike
             </Text>
             <Text style={[Typography.captionSmall, styles.referenceSubtitle]}>
-              Tap to see original check-in photos for comparison
+              Uporedite sa check-out slikama iznad
             </Text>
             <FlatList
               data={checkinImages}
@@ -203,19 +278,18 @@ export default function CheckoutReviewScreen() {
                 <TouchableOpacity
                   style={styles.referenceThumb}
                   onPress={() => {
-                    setSelectedCheckinImage(item);
-                    setShowCheckinModal(true);
+                    setCompareCheckinImage(item);
+                    setShowCompareModal(true);
                   }}
                 >
-                  <Image source={{ uri: item.uri }} style={styles.referenceThumbImage} />
-                  <Text style={styles.referenceThumbLabel}>{item.room}</Text>
+                  <Image source={{ uri: item.image_url }} style={styles.referenceThumbImage} />
                 </TouchableOpacity>
               )}
-              keyExtractor={(_, index) => `checkin-${index}`}
-              numColumns={3}
+              keyExtractor={(_, index) => `checkin-ref-${index}`}
+              numColumns={4}
               scrollEnabled={false}
-              columnWrapperStyle={styles.referenceRow}
-              contentContainerStyle={styles.referenceList}
+              columnWrapperStyle={styles.thumbnailsRow}
+              contentContainerStyle={styles.thumbnailsList}
             />
           </Card>
         )}
@@ -224,51 +298,120 @@ export default function CheckoutReviewScreen() {
         {uploading && (
           <Card style={styles.progressCard}>
             <Text style={[Typography.bodySemibold, styles.progressText]}>
-              Uploading... {uploadProgress}%
+              Otpremanje... {uploadProgress}%
             </Text>
-            <ProgressBar progress={uploadProgress / 100} style={styles.progressBar} />
+            <ProgressBar progress={uploadProgress} style={styles.progressBar} />
           </Card>
         )}
 
         {/* Action Buttons */}
         <View style={styles.buttonsContainer}>
-          <Button
-            label={uploading ? 'Uploading...' : `Upload ${checkoutImages.length} Images`}
-            onPress={handleUploadImages}
-            disabled={uploading || checkoutImages.length === 0}
-            loading={uploading}
-          />
-          <Button
-            label={uploading ? 'Uploading...' : 'Re-take Photos'}
-            variant="outline"
-            onPress={() => router.back()}
-            disabled={uploading}
-            style={styles.secondaryButton}
-          />
+          {isReviewMode ? (
+            <>
+              <Button
+                label="Odobri check-out"
+                onPress={handleApprove}
+                loading={approving}
+                disabled={approving || rejecting}
+                fullWidth
+              />
+              <Button
+                label="Odbij check-out"
+                onPress={() => setShowRejectModal(true)}
+                variant="danger"
+                disabled={approving || rejecting}
+                fullWidth
+                style={styles.secondaryButton}
+              />
+              <Button
+                label="Nazad"
+                variant="outline"
+                onPress={() => router.back()}
+                disabled={approving || rejecting}
+                fullWidth
+                style={styles.secondaryButton}
+              />
+            </>
+          ) : (
+            <>
+              <Button
+                label={uploading ? 'Otpremanje...' : `Otpremi ${displayImages.length} slika`}
+                onPress={handleUploadImages}
+                disabled={uploading || displayImages.length === 0}
+                loading={uploading}
+                fullWidth
+              />
+              <Button
+                label="Ponovo fotografiši"
+                variant="outline"
+                onPress={() => router.back()}
+                disabled={uploading}
+                fullWidth
+                style={styles.secondaryButton}
+              />
+            </>
+          )}
         </View>
       </ScrollView>
 
-      {/* Checkin Image Modal */}
-      <Modal visible={showCheckinModal} animationType="fade" transparent>
+      {/* Reject Modal */}
+      <Modal visible={showRejectModal} animationType="slide" transparent>
         <View style={styles.modalContainer}>
-          <TouchableOpacity
-            style={styles.modalBackdrop}
-            onPress={() => setShowCheckinModal(false)}
-          />
           <View style={styles.modalContent}>
-            {selectedCheckinImage && (
+            <Text style={[styles.modalTitle, Typography.heading3]}>Odbij check-out</Text>
+            <Text style={[styles.modalSubtitle, Typography.bodySmall]}>
+              Navedite razlog odbijanja. Zakupac će morati ponovo da fotografiše nekretninu.
+            </Text>
+            <TextInput
+              style={styles.rejectInput}
+              placeholder="Unesite razlog odbijanja..."
+              placeholderTextColor={Colors.textSecondary}
+              value={rejectComment}
+              onChangeText={setRejectComment}
+              multiline
+              numberOfLines={4}
+            />
+            <View style={styles.modalButtons}>
+              <Button
+                label="Otkaži"
+                variant="outline"
+                onPress={() => { setShowRejectModal(false); setRejectComment(''); }}
+                style={styles.modalButton}
+              />
+              <Button
+                label="Potvrdi odbijanje"
+                variant="danger"
+                onPress={handleReject}
+                loading={rejecting}
+                disabled={!rejectComment.trim()}
+                style={styles.modalButton}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Compare Check-in Image Modal */}
+      <Modal visible={showCompareModal} animationType="fade" transparent>
+        <View style={styles.compareModalContainer}>
+          <TouchableOpacity
+            style={styles.compareBackdrop}
+            onPress={() => setShowCompareModal(false)}
+          />
+          <View style={styles.compareContent}>
+            {compareCheckinImage && (
               <>
                 <Image
-                  source={{ uri: selectedCheckinImage.uri }}
-                  style={styles.modalImage}
+                  source={{ uri: compareCheckinImage.image_url }}
+                  style={styles.compareImage}
                 />
-                <Text style={[Typography.heading4, styles.modalImageLabel]}>
-                  Check-in: {selectedCheckinImage.room}
+                <Text style={[Typography.heading4, styles.compareLabel]}>
+                  Check-in referentna slika
                 </Text>
                 <Button
-                  label="Close"
-                  onPress={() => setShowCheckinModal(false)}
-                  style={styles.modalButton}
+                  label="Zatvori"
+                  onPress={() => setShowCompareModal(false)}
+                  style={styles.compareButton}
                 />
               </>
             )}
@@ -290,10 +433,10 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: Spacing.lg,
+    gap: Spacing.sm,
   },
   title: {
     color: Colors.text,
-    marginBottom: Spacing.sm,
   },
   subtitle: {
     color: Colors.textSecondary,
@@ -336,7 +479,6 @@ const styles = StyleSheet.create({
   },
   noteText: {
     color: Colors.text,
-    marginTop: Spacing.sm,
     lineHeight: 20,
   },
   thumbnailsCard: {
@@ -388,6 +530,8 @@ const styles = StyleSheet.create({
   },
   referenceCard: {
     marginBottom: Spacing.md,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.info,
   },
   referenceTitle: {
     color: Colors.text,
@@ -397,32 +541,18 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginBottom: Spacing.md,
   },
-  referenceList: {
-    paddingHorizontal: 0,
-  },
-  referenceRow: {
-    justifyContent: 'flex-start',
-    marginBottom: Spacing.md,
-  },
   referenceThumb: {
-    width: '31%',
+    width: '23%',
     aspectRatio: 1,
-    marginRight: Spacing.sm,
-    marginBottom: Spacing.sm,
+    marginRight: Spacing.xs,
+    marginBottom: Spacing.xs,
     borderRadius: BorderRadius.md,
     overflow: 'hidden',
     backgroundColor: Colors.backgroundSecondary,
   },
   referenceThumbImage: {
     width: '100%',
-    height: '85%',
-  },
-  referenceThumbLabel: {
-    height: '15%',
-    color: Colors.textSecondary,
-    fontSize: 10,
-    padding: 4,
-    textAlign: 'center',
+    height: '100%',
   },
   progressCard: {
     marginBottom: Spacing.md,
@@ -436,40 +566,79 @@ const styles = StyleSheet.create({
   },
   buttonsContainer: {
     gap: Spacing.md,
+    marginTop: Spacing.md,
   },
   secondaryButton: {
-    marginTop: Spacing.sm,
+    marginTop: Spacing.xs,
   },
   modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.background,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.xl,
+    borderTopLeftRadius: BorderRadius.lg,
+    borderTopRightRadius: BorderRadius.lg,
+  },
+  modalTitle: {
+    color: Colors.text,
+    marginBottom: Spacing.sm,
+  },
+  modalSubtitle: {
+    color: Colors.textSecondary,
+    marginBottom: Spacing.lg,
+  },
+  rejectInput: {
+    borderColor: Colors.border,
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    color: Colors.text,
+    marginBottom: Spacing.lg,
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  modalButton: {
+    flex: 1,
+  },
+  compareModalContainer: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalBackdrop: {
+  compareBackdrop: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
   },
-  modalContent: {
+  compareContent: {
     alignItems: 'center',
     padding: Spacing.md,
     zIndex: 1,
   },
-  modalImage: {
+  compareImage: {
     width: Dimensions.get('window').width * 0.9,
     height: Dimensions.get('window').width * 0.9,
     borderRadius: BorderRadius.lg,
     marginBottom: Spacing.lg,
   },
-  modalImageLabel: {
+  compareLabel: {
     color: Colors.white,
     marginBottom: Spacing.md,
     textAlign: 'center',
   },
-  modalButton: {
+  compareButton: {
     width: 200,
   },
 });

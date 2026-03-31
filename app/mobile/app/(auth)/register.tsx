@@ -1,34 +1,66 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, ScrollView, SafeAreaView } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  Text,
+  ScrollView,
+  SafeAreaView,
+  TouchableOpacity,
+} from 'react-native';
 import { router } from 'expo-router';
-import { useAuthStore } from '../../store/authStore';
-import { Button, InputField, ErrorMessage } from '../../components';
-import { Colors, Spacing, Typography } from '../../constants/theme';
+import { useAuthStore, UserRole } from '../../store/authStore';
+import { authService } from '../../services';
+import { Button, InputField, Card, ErrorMessage, LoadingOverlay } from '../../components';
+import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
 import { nameSchema } from '../../utils/validation';
 
 export default function RegisterScreen() {
   const [displayName, setDisplayName] = useState('');
+  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { user, setUser } = useAuthStore();
+  const { user, firebaseToken, setUser, setUserRole } = useAuthStore();
 
   const handleComplete = async () => {
     if (!displayName.trim()) {
-      setError('Please enter a display name');
+      setError('Unesite vaše ime');
+      return;
+    }
+
+    if (!selectedRole) {
+      setError('Izaberite tip korisnika');
       return;
     }
 
     try {
       nameSchema.parse(displayName);
-      
-      setLoading(true);
-      // Update user with display name
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Validacija nije uspela');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // If we already have a user from login, just update the name
       if (user) {
         setUser({ ...user, display_name: displayName });
+      } else {
+        // Fresh registration — call verifyAuth
+        const mockToken = firebaseToken || 'firebase-token-' + Math.random().toString(36).substring(2);
+        const response = await authService.verifyAuth({
+          firebase_token: mockToken,
+          display_name: displayName,
+          device_id: 'device-' + Math.random().toString(36).substring(7),
+        });
+        setUser(response.user);
       }
+
+      setUserRole(selectedRole);
       router.replace('/(tabs)');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Validation failed');
+      setError(err instanceof Error ? err.message : 'Registracija nije uspela');
     } finally {
       setLoading(false);
     }
@@ -38,31 +70,101 @@ export default function RegisterScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={[styles.title, Typography.heading2]}>Complete Your Profile</Text>
+          <Text style={[styles.title, Typography.heading2]}>Kreirajte profil</Text>
           <Text style={[styles.subtitle, Typography.body]}>
-            Let us know your name to get started
+            Unesite vaše podatke da biste započeli
           </Text>
         </View>
 
         {error && <ErrorMessage message={error} />}
 
         <InputField
-          label="Display Name"
-          placeholder="John Doe"
+          label="Ime i prezime"
+          placeholder="Marko Marković"
           value={displayName}
           onChangeText={setDisplayName}
           editable={!loading}
         />
 
+        <View style={styles.roleSection}>
+          <Text style={[styles.roleLabel, Typography.bodySemibold]}>Ja sam:</Text>
+
+          <TouchableOpacity
+            style={[
+              styles.roleCard,
+              selectedRole === 'landlord' && styles.roleCardSelected,
+            ]}
+            onPress={() => setSelectedRole('landlord')}
+            disabled={loading}
+          >
+            <View style={styles.roleIconContainer}>
+              <Text style={styles.roleIcon}>🏠</Text>
+            </View>
+            <View style={styles.roleTextContainer}>
+              <Text style={[styles.roleName, Typography.heading4,
+                selectedRole === 'landlord' && styles.roleNameSelected]}>
+                Stanodavac
+              </Text>
+              <Text style={[styles.roleDescription, Typography.bodySmall,
+                selectedRole === 'landlord' && styles.roleDescSelected]}>
+                Izdajem nekretninu i kreiram ugovore
+              </Text>
+            </View>
+            {selectedRole === 'landlord' && (
+              <View style={styles.checkmark}>
+                <Text style={styles.checkmarkText}>✓</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.roleCard,
+              selectedRole === 'tenant' && styles.roleCardSelected,
+            ]}
+            onPress={() => setSelectedRole('tenant')}
+            disabled={loading}
+          >
+            <View style={styles.roleIconContainer}>
+              <Text style={styles.roleIcon}>🔑</Text>
+            </View>
+            <View style={styles.roleTextContainer}>
+              <Text style={[styles.roleName, Typography.heading4,
+                selectedRole === 'tenant' && styles.roleNameSelected]}>
+                Zakupac
+              </Text>
+              <Text style={[styles.roleDescription, Typography.bodySmall,
+                selectedRole === 'tenant' && styles.roleDescSelected]}>
+                Iznajmljujem nekretninu i prihvatam ugovore
+              </Text>
+            </View>
+            {selectedRole === 'tenant' && (
+              <View style={styles.checkmark}>
+                <Text style={styles.checkmarkText}>✓</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.actions}>
           <Button
-            label="Continue"
+            label="Nastavi"
             onPress={handleComplete}
             loading={loading}
             fullWidth
+            disabled={!displayName.trim() || !selectedRole}
+          />
+          <Button
+            label="Nazad na prijavu"
+            onPress={() => router.back()}
+            variant="outline"
+            fullWidth
+            disabled={loading}
+            style={styles.backButton}
           />
         </View>
       </ScrollView>
+      <LoadingOverlay visible={loading} message="Kreiranje profila..." />
     </SafeAreaView>
   );
 }
@@ -87,7 +189,74 @@ const styles = StyleSheet.create({
   subtitle: {
     color: Colors.textSecondary,
   },
+  roleSection: {
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.lg,
+  },
+  roleLabel: {
+    color: Colors.text,
+    marginBottom: Spacing.md,
+  },
+  roleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+    borderWidth: 2,
+    borderColor: Colors.border,
+  },
+  roleCardSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.backgroundSecondary,
+  },
+  roleIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.backgroundSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.md,
+  },
+  roleIcon: {
+    fontSize: 24,
+  },
+  roleTextContainer: {
+    flex: 1,
+  },
+  roleName: {
+    color: Colors.text,
+    marginBottom: Spacing.xs,
+  },
+  roleNameSelected: {
+    color: Colors.primary,
+  },
+  roleDescription: {
+    color: Colors.textSecondary,
+  },
+  roleDescSelected: {
+    color: Colors.textSecondary,
+  },
+  checkmark: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: Spacing.sm,
+  },
+  checkmarkText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   actions: {
     marginTop: Spacing.xl,
+  },
+  backButton: {
+    marginTop: Spacing.md,
   },
 });
