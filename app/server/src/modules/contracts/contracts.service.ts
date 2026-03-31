@@ -221,12 +221,6 @@ export async function cancelContract(
 
     assertCancellable(contractRow.status as Contract['status']);
 
-    // Business rule: before acceptance, only the landlord (who created the contract) can cancel.
-    // The tenant hasn't joined yet, so they have no standing to cancel.
-    if (contractRow.status === 'pending_acceptance' && !isLandlord) {
-      throw AppError.forbidden('Only the landlord can cancel before the contract is accepted.');
-    }
-
     const updated = await client.query<DbContract>(
       `UPDATE contracts SET status = 'cancelled', rejection_comment = $1, updated_at = NOW()
        WHERE id = $2 RETURNING *`,
