@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs ls:*)",
+      "Bash(grep -r checkout 'C:/Users/Natalija/Documents/Runtime Terror/RentSmart/app/server/src' --include=*.ts)",
+      "Bash(find 'C:/Users/Natalija/Documents/Runtime Terror/RentSmart/packages/contracts/src' -type f -name *.ts)",
+      "Bash(find 'C:\\\\Users\\\\Natalija\\\\Documents\\\\Runtime Terror\\\\RentSmart\\\\app' -type f -name *spec* -o -name *requirements* -o -name *README*)",
+      "Bash(find 'C:\\\\Users\\\\Natalija\\\\Documents\\\\Runtime Terror\\\\RentSmart\\\\app' -maxdepth 2 -name *.md -o -name README*)"
+    ]
+  }
+}

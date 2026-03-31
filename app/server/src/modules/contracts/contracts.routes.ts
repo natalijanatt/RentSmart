@@ -11,7 +11,7 @@ import {
   getContractByInviteCode,
   listContracts,
 } from './contracts.service.js';
-import { cancelContractBodySchema, createContractBodySchema } from './contracts.schema.js';
+import { acceptContractBodySchema, cancelContractBodySchema, createContractBodySchema } from './contracts.schema.js';
 
 export const contractsRouter = Router();
 
@@ -53,8 +53,9 @@ contractsRouter.get(
 
 contractsRouter.post(
   '/:id/accept',
+  validate(acceptContractBodySchema),
   asyncHandler(async (req, res) => {
-    const contract = await acceptContract(req.params.id as string, req.user!.id);
+    const contract = await acceptContract(req.params.id as string, req.user!.id, req.body.invite_code);
     res.json({ contract });
   }),
 );

@@ -16,6 +16,14 @@ const MIGRATIONS: { name: string; file: string }[] = [
     name: '001_initial',
     file: resolve(__dirname, 'migrations/001_initial.sql'),
   },
+  {
+    name: '002_seed_test_data',
+    file: resolve(__dirname, 'migrations/002_seed_test_data.sql'),
+  },
+  {
+    name: '003_remove_pending_acceptance',
+    file: resolve(__dirname, 'migrations/003_remove_pending_acceptance.sql'),
+  },
 ];
 
 async function run(): Promise<void> {

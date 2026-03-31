@@ -56,6 +56,9 @@ export const createContractBodySchema = z.object({
   deposit_rules: z.string().max(2000).optional(),
   notes: z.string().max(2000).optional(),
   rooms: z.array(createContractRoomInputSchema).min(1).max(15),
+}).refine((data) => new Date(data.end_date) > new Date(data.start_date), {
+  message: 'end_date must be after start_date',
+  path: ['end_date'],
 });
 
 export const contractResponseSchema = z.object({

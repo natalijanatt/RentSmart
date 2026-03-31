@@ -3,6 +3,8 @@ import { env } from '../../config/env.js';
 
 const { Pool } = pg;
 
+// ── PostgreSQL — for ALL data queries ────────────────────────────────────────
+
 export const pool = new Pool({
   connectionString: env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },

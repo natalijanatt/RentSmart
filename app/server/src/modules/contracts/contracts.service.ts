@@ -1,57 +1,22 @@
-import crypto from 'crypto';
-
 import type { PoolClient } from 'pg';
 
-import type { Contract, CreateContractBody, Room } from '@rentsmart/contracts';
+import type { Contract, CreateContractBody } from '@rentsmart/contracts';
 
 import { query, queryOne, withTransaction } from '../../shared/db/index.js';
 import type { DbContract, DbRoom } from '../../shared/types/index.js';
 import { AppError } from '../../shared/utils/errors.js';
 import { sha256 } from '../../shared/utils/hash.js';
+import { toContract } from '../../shared/utils/mappers.js';
 import { logAuditEvent } from '../audit/audit.service.js';
 import { assertCancellable, validateTransition } from './state-machine.js';
 
-function toRoom(db: DbRoom): Room {
-  return {
-    id: db.id,
-    contract_id: db.contract_id,
-    room_type: db.room_type as Room['room_type'],
-    custom_name: db.custom_name,
-    is_mandatory: db.is_mandatory,
-    display_order: db.display_order,
-  };
-}
-
-function toContract(db: DbContract, rooms: DbRoom[]): Contract {
-  return {
-    id: db.id,
-    landlord_id: db.landlord_id,
-    tenant_id: db.tenant_id,
-    invite_code: db.invite_code,
-    property_address: db.property_address,
-    property_gps_lat: db.property_gps_lat !== null ? parseFloat(db.property_gps_lat) : null,
-    property_gps_lng: db.property_gps_lng !== null ? parseFloat(db.property_gps_lng) : null,
-    rent_monthly_eur: parseFloat(db.rent_monthly_eur),
-    deposit_amount_eur: parseFloat(db.deposit_amount_eur),
-    start_date: db.start_date.toISOString(),
-    end_date: db.end_date.toISOString(),
-    deposit_rules: db.deposit_rules,
-    notes: db.notes,
-    plain_language_summary: db.plain_language_summary,
-    status: db.status as Contract['status'],
-    deposit_status: db.deposit_status,
-    contract_hash: db.contract_hash,
-    rejection_comment: db.rejection_comment,
-    solana_pda: db.solana_pda,
-    solana_tx_init: db.solana_tx_init,
-    created_at: db.created_at.toISOString(),
-    updated_at: db.updated_at.toISOString(),
-    rooms: rooms.map(toRoom),
-  };
-}
-
 function generateInviteCode(): string {
-  return crypto.randomBytes(6).toString('base64url').toUpperCase().slice(0, 8);
+  const charset = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let code = 'RS-';
+  for (let i = 0; i < 6; i++) {
+    code += charset[Math.floor(Math.random() * charset.length)];
+  }
+  return code;
 }
 
 async function fetchRooms(contractId: string, client?: PoolClient): Promise<DbRoom[]> {
@@ -68,7 +33,20 @@ export async function createContract(
   body: CreateContractBody,
 ): Promise<Contract> {
   return withTransaction(async (client) => {
-    const inviteCode = generateInviteCode();
+    // Generate unique invite code with collision retry
+    let inviteCode = generateInviteCode();
+    const MAX_RETRIES = 5;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const existing = await client.query(
+        `SELECT 1 FROM contracts WHERE invite_code = $1`,
+        [inviteCode],
+      );
+      if (existing.rows.length === 0) break;
+      if (attempt === MAX_RETRIES - 1) {
+        throw AppError.internal('Failed to generate unique invite code after retries.');
+      }
+      inviteCode = generateInviteCode();
+    }
 
     const contractHash = sha256(
       JSON.stringify({
@@ -80,12 +58,17 @@ export async function createContract(
       }),
     );
 
+    const plainLanguageSummary =
+      `Stan na adresi ${body.property_address} izdaje se uz mesečnu kiriju od ${body.rent_monthly_eur}€ ` +
+      `i depozit od ${body.deposit_amount_eur}€. Ugovor važi od ${body.start_date} do ${body.end_date}. ` +
+      (body.deposit_rules ? `Pravila depozita: ${body.deposit_rules}` : 'Depozit se vraća u celosti ako nema oštećenja.');
+
     const contractResult = await client.query<DbContract>(
       `INSERT INTO contracts
          (landlord_id, invite_code, property_address, property_gps_lat, property_gps_lng,
           rent_monthly_eur, deposit_amount_eur, start_date, end_date,
-          deposit_rules, notes, status, deposit_status, contract_hash)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', 'pending', $12)
+          deposit_rules, notes, plain_language_summary, status, deposit_status, contract_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending_acceptance', 'pending', $13)
        RETURNING *`,
       [
         landlordId,
@@ -99,6 +82,7 @@ export async function createContract(
         body.end_date,
         body.deposit_rules ?? null,
         body.notes ?? null,
+        plainLanguageSummary,
         contractHash,
       ],
     );
@@ -125,6 +109,15 @@ export async function createContract(
       landlordId,
       'landlord',
       { invite_code: inviteCode, property_address: body.property_address },
+      client,
+    );
+
+    await logAuditEvent(
+      contractRow.id,
+      'INVITE_SENT',
+      landlordId,
+      'landlord',
+      { invite_code: inviteCode },
       client,
     );
 
@@ -184,7 +177,7 @@ export async function getContractByInviteCode(code: string): Promise<Contract> {
   return toContract(contractRow, roomRows);
 }
 
-export async function acceptContract(contractId: string, tenantId: string): Promise<Contract> {
+export async function acceptContract(contractId: string, tenantId: string, inviteCode: string): Promise<Contract> {
   return withTransaction(async (client) => {
     const result = await client.query<DbContract>(
       `SELECT * FROM contracts WHERE id = $1 FOR UPDATE`,
@@ -193,6 +186,9 @@ export async function acceptContract(contractId: string, tenantId: string): Prom
     const contractRow = result.rows[0];
 
     if (!contractRow) throw AppError.notFound('Contract not found.');
+    if (contractRow.invite_code !== inviteCode) {
+      throw AppError.forbidden('Invalid invite code.');
+    }
     if (tenantId === contractRow.landlord_id) {
       throw AppError.conflict('You are already the landlord on this contract.');
     }
@@ -203,7 +199,7 @@ export async function acceptContract(contractId: string, tenantId: string): Prom
     validateTransition(contractRow.status as Contract['status'], 'accepted', 'tenant');
 
     const updated = await client.query<DbContract>(
-      `UPDATE contracts SET status = 'accepted', tenant_id = $1, updated_at = NOW()
+      `UPDATE contracts SET status = 'accepted', deposit_status = 'locked', tenant_id = $1, updated_at = NOW()
        WHERE id = $2 RETURNING *`,
       [tenantId, contractId],
     );
@@ -211,6 +207,7 @@ export async function acceptContract(contractId: string, tenantId: string): Prom
     if (!updatedRow) throw AppError.internal('Failed to update contract.');
 
     await logAuditEvent(contractId, 'CONTRACT_ACCEPTED', tenantId, 'tenant', {}, client);
+    await logAuditEvent(contractId, 'DEPOSIT_LOCKED', tenantId, 'tenant', {}, client);
 
     const roomRows = await fetchRooms(contractId, client);
     return toContract(updatedRow, roomRows);
