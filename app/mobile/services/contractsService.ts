@@ -64,6 +64,46 @@ class ContractsService {
     return response.data;
   }
 
+  async startCheckin(contractId: string): Promise<ContractResponse> {
+    const response = await api.post<ContractResponse>(`/contracts/${contractId}/checkin/start`);
+    return response.data;
+  }
+
+  async completeCheckin(contractId: string): Promise<ContractResponse> {
+    const response = await api.post<ContractResponse>(`/contracts/${contractId}/checkin/complete`);
+    return response.data;
+  }
+
+  async startCheckout(contractId: string): Promise<ContractResponse> {
+    const response = await api.post<ContractResponse>(`/contracts/${contractId}/checkout/start`);
+    return response.data;
+  }
+
+  async completeCheckout(contractId: string): Promise<ContractResponse> {
+    const response = await api.post<ContractResponse>(`/contracts/${contractId}/checkout/complete`);
+    return response.data;
+  }
+
+  async approveCheckout(contractId: string): Promise<ContractResponse> {
+    const response = await api.post<ContractResponse>(`/contracts/${contractId}/checkout/approve`);
+    return response.data;
+  }
+
+  async rejectCheckout(contractId: string, comment: string): Promise<ContractResponse> {
+    const response = await api.post<ContractResponse>(`/contracts/${contractId}/checkout/reject`, { comment });
+    return response.data;
+  }
+
+  async approveCheckin(contractId: string): Promise<ContractResponse> {
+    const response = await api.post<ContractResponse>(`/contracts/${contractId}/checkin/approve`);
+    return response.data;
+  }
+
+  async rejectCheckin(contractId: string, comment: string): Promise<ContractResponse> {
+    const response = await api.post<ContractResponse>(`/contracts/${contractId}/checkin/reject`, { comment });
+    return response.data;
+  }
+
   async getInspectionImages(contractId: string, inspectionType: 'checkin' | 'checkout'): Promise<InspectionImagesResponse> {
     const endpoint = inspectionType === 'checkin'
       ? `/contracts/${contractId}/checkin/images`
