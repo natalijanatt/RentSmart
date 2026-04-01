@@ -10,7 +10,6 @@ import {
   Image,
   Alert,
   ActivityIndicator,
-  PanResponder,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { CameraView, Camera } from 'expo-camera';
@@ -170,7 +169,7 @@ export default function CheckoutScreen() {
 
   const allMandatoryDone = rooms
     .filter((r) => r.is_mandatory)
-    .every((r) => (uploadedCounts[r.id] ?? 0) >= 1);
+    .every((r) => (uploadedCounts[r.id] ?? 0) >= 3);
 
   const handleComplete = async () => {
     setUiState('completing');
@@ -217,17 +216,8 @@ export default function CheckoutScreen() {
     const refImages = checkinImages[selectedRoom.id] ?? [];
     const currentOverlay = refImages[overlayIndex] ?? null;
 
-    const swipePan = PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy),
-      onPanResponderRelease: (_, g) => {
-        if (refImages.length < 2 || !overlayVisible) return;
-        if (g.dx < -40) setOverlayIndex((i) => (i + 1) % refImages.length);
-        else if (g.dx > 40) setOverlayIndex((i) => (i - 1 + refImages.length) % refImages.length);
-      },
-    });
-
     return (
-      <View style={styles.cameraContainer} {...swipePan.panHandlers}>
+      <View style={styles.cameraContainer}>
         <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" flash={flashOn ? 'on' : 'off'} />
 
         {/* Ghost overlay — checkin reference image at low opacity */}
@@ -271,16 +261,19 @@ export default function CheckoutScreen() {
           </TouchableOpacity>
         </SafeAreaView>
 
-        {/* Overlay controls — toggle + swipe hint */}
+        {/* Overlay controls — toggle + cycle through reference images */}
         {refImages.length > 0 && (
           <View style={styles.overlayControls}>
             <TouchableOpacity onPress={() => setOverlayVisible((v) => !v)} style={styles.overlayBtn}>
               <Text style={styles.overlayBtnText}>{overlayVisible ? '👁 Hide ref' : '👁 Show ref'}</Text>
             </TouchableOpacity>
             {refImages.length > 1 && overlayVisible && (
-              <View style={styles.overlayBtn}>
-                <Text style={styles.overlayBtnText}>← {overlayIndex + 1}/{refImages.length} →</Text>
-              </View>
+              <TouchableOpacity
+                onPress={() => setOverlayIndex((i) => (i + 1) % refImages.length)}
+                style={styles.overlayBtn}
+              >
+                <Text style={styles.overlayBtnText}>{overlayIndex + 1}/{refImages.length} →</Text>
+              </TouchableOpacity>
             )}
           </View>
         )}
@@ -293,21 +286,8 @@ export default function CheckoutScreen() {
               data={captured}
               horizontal
               keyExtractor={(_, i) => String(i)}
-              renderItem={({ item, index }) => (
-                <View style={styles.thumbnailWrapper}>
-                  <Image source={{ uri: item.uri }} style={styles.thumbnail} />
-                  <TouchableOpacity
-                    style={styles.thumbnailRemove}
-                    onPress={() =>
-                      setRoomImages((prev) => ({
-                        ...prev,
-                        [selectedRoom.id]: prev[selectedRoom.id].filter((_, i) => i !== index),
-                      }))
-                    }
-                  >
-                    <Text style={styles.thumbnailRemoveText}>✕</Text>
-                  </TouchableOpacity>
-                </View>
+              renderItem={({ item }) => (
+                <Image source={{ uri: item.uri }} style={styles.thumbnail} />
               )}
               contentContainerStyle={styles.thumbnailList}
             />
@@ -343,7 +323,7 @@ export default function CheckoutScreen() {
         />
         <Text style={[styles.title, Typography.heading2]}>Check-out</Text>
         <Text style={[styles.subtitle, Typography.bodySmall]}>
-          Photograph each mandatory room (min 1 photo each).
+          Photograph each mandatory room (min 3 photos each).
         </Text>
 
         {rooms
@@ -353,7 +333,7 @@ export default function CheckoutScreen() {
             const uploaded = uploadedCounts[room.id] ?? 0;
             const captured = roomImages[room.id]?.length ?? 0;
             const count = uploaded > 0 ? uploaded : captured;
-            const done = !room.is_mandatory || uploaded >= 1;
+            const done = !room.is_mandatory || uploaded >= 3;
             const refCount = checkinImages[room.id]?.length ?? 0;
             return (
               <TouchableOpacity key={room.id} onPress={() => handleSelectRoom(room)}>
@@ -364,7 +344,7 @@ export default function CheckoutScreen() {
                         {room.custom_name || room.room_type.replace(/_/g, ' ')}
                       </Text>
                       <Text style={[styles.imageCount, Typography.caption]}>
-                        {count} photo{count !== 1 ? 's' : ''}{room.is_mandatory ? ' / 1 required' : ''}
+                        {count} photo{count !== 1 ? 's' : ''}{room.is_mandatory ? ' / 3 required' : ''}
                         {refCount > 0 ? `  ·  ${refCount} check-in ref` : ''}
                       </Text>
                     </View>
@@ -388,7 +368,7 @@ export default function CheckoutScreen() {
         />
         {!allMandatoryDone && (
           <Text style={[styles.hint, Typography.caption]}>
-            All mandatory rooms need at least 1 photo.
+            All mandatory rooms need at least 3 photos.
           </Text>
         )}
       </ScrollView>
@@ -450,20 +430,7 @@ const styles = StyleSheet.create({
   overlayBtnText: { color: '#fff', fontSize: 12 },
   newStrip: { position: 'absolute', bottom: 120, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.4)', paddingVertical: Spacing.sm },
   newLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 11, paddingHorizontal: Spacing.md, marginBottom: Spacing.xs },
-  thumbnailWrapper: { position: 'relative', marginRight: Spacing.sm },
-  thumbnail: { width: 60, height: 60, borderRadius: 6, borderWidth: 2, borderColor: '#fff' },
-  thumbnailRemove: {
-    position: 'absolute',
-    top: -6,
-    right: -6,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: Colors.error,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  thumbnailRemoveText: { color: '#fff', fontSize: 10, fontWeight: '700' as const },
+  thumbnail: { width: 60, height: 60, borderRadius: 6, marginRight: Spacing.sm, borderWidth: 2, borderColor: '#fff' },
   thumbnailList: { paddingHorizontal: Spacing.md },
   cameraBottomBar: {
     position: 'absolute',
