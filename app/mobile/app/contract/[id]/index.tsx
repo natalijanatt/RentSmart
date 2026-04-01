@@ -106,6 +106,12 @@ export default function ContractDetailsScreen() {
       );
     }
 
+    if (status === 'checkout_rejected' && !isLandlord) {
+      buttons.push(
+        <Button key="checkout-restart" label="Restart Check-out" onPress={() => router.push(`/contract/${contract.id}/checkout`)} fullWidth style={styles.actionButton} />
+      );
+    }
+
     if (status === 'settlement' || status === 'completed') {
       buttons.push(
         <Button key="settlement" label="View Settlement" onPress={() => router.push(`/contract/${contract.id}/settlement`)} fullWidth style={styles.actionButton} />
@@ -144,6 +150,12 @@ export default function ContractDetailsScreen() {
           <Text style={[styles.period, Typography.body]}>
             {formatDate(contract.start_date)} - {formatDate(contract.end_date)}
           </Text>
+          {contract.rejection_comment && (
+            <View style={styles.rejectionBox}>
+              <Text style={[styles.rejectionLabel, Typography.caption]}>Rejection reason</Text>
+              <Text style={[styles.rejectionText, Typography.body]}>{contract.rejection_comment}</Text>
+            </View>
+          )}
         </Card>
 
         {/* Invite Code */}
@@ -264,5 +276,22 @@ const styles = StyleSheet.create({
   error: {
     color: Colors.error,
     padding: Spacing.lg,
+  },
+  rejectionBox: {
+    marginTop: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.error,
+    borderRadius: 4,
+    padding: Spacing.md,
+  },
+  rejectionLabel: {
+    color: Colors.error,
+    marginBottom: Spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  rejectionText: {
+    color: Colors.text,
   },
 });
