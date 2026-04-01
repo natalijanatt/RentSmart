@@ -29,7 +29,7 @@ export default function DashboardScreen() {
   const loadContracts = useCallback(async () => {
     if (!user) return;
     try {
-      const response = await contractsService.getContracts(user.id);
+      const response = await contractsService.getContracts();
       setContracts(response.contracts);
     } catch (error) {
       console.error('Error loading contracts:', error);

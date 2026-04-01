@@ -67,10 +67,8 @@ export default function SettlementReviewScreen() {
           onPress: async () => {
             setApproving(true);
             try {
-              const userRole = 'landlord'; // In real app, determine from context
               const response = await analysisService.approveSettlement(
-                settlement.contract_id,
-                userRole
+                settlement.contract_id
               );
               setSettlement(response.settlement);
               Alert.alert('Success', 'Settlement approved successfully');

@@ -51,7 +51,7 @@ export default function NewContractScreen() {
     setError(null);
 
     try {
-      const response = await contractsService.createContract(user.id, {
+      const response = await contractsService.createContract({
         property_address: formData.property_address,
         rent_monthly_eur: parseFloat(formData.rent_monthly_eur),
         deposit_amount_eur: parseFloat(formData.deposit_amount_eur),
