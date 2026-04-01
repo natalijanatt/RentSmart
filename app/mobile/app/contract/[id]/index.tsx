@@ -6,6 +6,7 @@ import {
   ScrollView,
   SafeAreaView,
   Alert,
+  Share,
 } from 'react-native';
 import { useLocalSearchParams, useFocusEffect, router } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
@@ -57,10 +58,78 @@ export default function ContractDetailsScreen() {
   }
 
   const contract = selectedContract;
+  const isLandlord = user?.id === contract.landlord_id;
+  const status = contract.status;
+
+  const handleShare = async () => {
+    try {
+      await Share.share({ message: `Join my RentSmart contract: ${contract.invite_code}` });
+    } catch {}
+  };
+
+  const renderActions = () => {
+    const buttons: React.ReactNode[] = [];
+
+    if (status === 'accepted' && isLandlord) {
+      buttons.push(
+        <Button key="checkin" label="Start Check-in" onPress={() => router.push(`/contract/${contract.id}/checkin`)} fullWidth style={styles.actionButton} />
+      );
+    }
+
+    if ((status === 'checkin_in_progress') && isLandlord) {
+      buttons.push(
+        <Button key="checkin" label="Continue Check-in" onPress={() => router.push(`/contract/${contract.id}/checkin`)} fullWidth style={styles.actionButton} />
+      );
+    }
+
+    if (status === 'checkin_pending_approval' && !isLandlord) {
+      buttons.push(
+        <Button key="review-checkin" label="Review Check-in" onPress={() => router.push(`/contract/${contract.id}/review-images`)} fullWidth style={styles.actionButton} />
+      );
+    }
+
+    if (status === 'active' && !isLandlord) {
+      buttons.push(
+        <Button key="checkout" label="Start Check-out" onPress={() => router.push(`/contract/${contract.id}/checkout`)} fullWidth style={styles.actionButton} />
+      );
+    }
+
+    if (status === 'checkout_in_progress' && !isLandlord) {
+      buttons.push(
+        <Button key="checkout" label="Continue Check-out" onPress={() => router.push(`/contract/${contract.id}/checkout`)} fullWidth style={styles.actionButton} />
+      );
+    }
+
+    if (status === 'checkout_pending_approval' && isLandlord) {
+      buttons.push(
+        <Button key="review-checkout" label="Review Check-out" onPress={() => router.push(`/contract/${contract.id}/review-images`)} fullWidth style={styles.actionButton} />
+      );
+    }
+
+    if (status === 'settlement' || status === 'completed') {
+      buttons.push(
+        <Button key="settlement" label="View Settlement" onPress={() => router.push(`/contract/${contract.id}/settlement`)} fullWidth style={styles.actionButton} />
+      );
+    }
+
+    buttons.push(
+      <Button key="audit" label="View Audit Trail" onPress={() => router.push(`/contract/${contract.id}/audit`)} variant="outline" fullWidth style={styles.actionButton} />
+    );
+
+    return buttons;
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <Button
+          label="← Home"
+          onPress={() => router.replace('/(tabs)')}
+          variant="outline"
+          size="small"
+          style={styles.backButton}
+        />
+
         {/* Status Section */}
         <Card style={styles.statusCard}>
           <View style={styles.statusHeader}>
@@ -76,6 +145,17 @@ export default function ContractDetailsScreen() {
             {formatDate(contract.start_date)} - {formatDate(contract.end_date)}
           </Text>
         </Card>
+
+        {/* Invite Code */}
+        {(status === 'pending_acceptance' || status === 'draft') && isLandlord && (
+          <Card style={styles.card}>
+            <Text style={[styles.cardTitle, Typography.heading4]}>Invite Tenant</Text>
+            <Divider />
+            <Text style={[styles.summaryLabel, Typography.body]}>Share this code with your tenant:</Text>
+            <Text style={[styles.inviteCode, Typography.heading2]}>{contract.invite_code}</Text>
+            <Button label="Share Invite Code" onPress={handleShare} fullWidth style={styles.actionButton} />
+          </Card>
+        )}
 
         {/* Financial Summary */}
         <Card style={styles.card}>
@@ -100,11 +180,12 @@ export default function ContractDetailsScreen() {
           <Card style={styles.card}>
             <Text style={[styles.cardTitle, Typography.heading4]}>Rooms</Text>
             <Divider />
-            {contract.rooms.map((room, index) => (
-              <View key={room.id}>
-                {room.is_mandatory && (
-                  <Badge label="Mandatory" variant="primary" size="small" />
-                )}
+            {contract.rooms.map((room) => (
+              <View key={room.id} style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, Typography.body]}>
+                  {room.custom_name || room.room_type.replace(/_/g, ' ')}
+                </Text>
+                {room.is_mandatory && <Badge label="Mandatory" variant="primary" size="small" />}
               </View>
             ))}
           </Card>
@@ -112,18 +193,7 @@ export default function ContractDetailsScreen() {
 
         {/* Actions */}
         <View style={styles.actions}>
-          <Button
-            label="View Settlement"
-            onPress={() => router.push(`/contract/${contract.id}/settlement`)}
-            fullWidth
-            style={styles.actionButton}
-          />
-          <Button
-            label="View Audit Trail"
-            onPress={() => router.push(`/contract/${contract.id}/audit`)}
-            variant="outline"
-            fullWidth
-          />
+          {renderActions()}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -138,6 +208,10 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.lg,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    marginBottom: Spacing.lg,
   },
   statusCard: {
     marginBottom: Spacing.lg,
@@ -160,6 +234,13 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: Colors.text,
     marginBottom: Spacing.md,
+  },
+  inviteCode: {
+    color: Colors.primary,
+    textAlign: 'center',
+    letterSpacing: 4,
+    marginVertical: Spacing.lg,
+    fontWeight: '700' as const,
   },
   summaryRow: {
     flexDirection: 'row',
