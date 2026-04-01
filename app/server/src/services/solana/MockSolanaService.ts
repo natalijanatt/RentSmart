@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaRentPaymentTxResult, SolanaSettlementResult } from './ISolanaService';
+import type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaReleaseRentResult, SolanaSettlementResult, SolanaTopUpRentTxResult } from './ISolanaService';
 
 /**
  * MockSolanaService — used when SOLANA_PROGRAM_ID is not set.
@@ -55,20 +55,36 @@ export class MockSolanaService implements ISolanaService {
     return { tx_signature: `mock_tx_checkout_${contractId.slice(0, 8)}` };
   }
 
-  async buildPayRentTx(
+  async buildTopUpRentTx(
     contractId: string,
     _tenantPubkey: string,
+    rentLamports: number,
+    months: number,
+  ): Promise<SolanaTopUpRentTxResult> {
+    const feePerMonth = Math.floor((rentLamports * 50) / 10_000);
+    const amountLamports = (rentLamports + feePerMonth) * months;
+    console.log(`[MockSolana] buildTopUpRentTx: ${contractId} — months=${months} amount=${amountLamports}`);
+    return {
+      serialized_tx: `mock_topup_tx_${contractId.slice(0, 8)}`,
+      amount_lamports: amountLamports,
+      months_covered: months,
+      fee_lamports: feePerMonth * months,
+    };
+  }
+
+  async releaseMonthlyRent(
+    contractId: string,
+    rentLamports: number,
     _landlordPubkey: string,
     _platformPubkey: string,
-    rentLamports: number,
-  ): Promise<SolanaRentPaymentTxResult> {
+  ): Promise<SolanaReleaseRentResult> {
     const feePerSide = Math.floor((rentLamports * 50) / 10_000);
-    console.log(`[MockSolana] buildPayRentTx: ${contractId} — rent=${rentLamports}`);
+    console.log(`[MockSolana] releaseMonthlyRent: ${contractId} — rent=${rentLamports}`);
     return {
-      serialized_tx: `mock_rent_tx_${contractId.slice(0, 8)}`,
-      rent_lamports: rentLamports,
+      tx_signature: `mock_tx_release_${contractId.slice(0, 8)}`,
       landlord_amount: rentLamports - feePerSide,
-      platform_fee_total: feePerSide * 2,
+      platform_fee: feePerSide * 2,
+      explorer_url: 'https://explorer.solana.com/tx/mock?cluster=devnet',
     };
   }
 
@@ -96,6 +112,7 @@ export class MockSolanaService implements ISolanaService {
       contract_id: contractId,
       contract_hash: '0'.repeat(64),
       deposit_lamports: 0,
+      prepaid_rent_lamports: 0,
       landlord: '11111111111111111111111111111111',
       tenant: '11111111111111111111111111111111',
       state: 'Created',

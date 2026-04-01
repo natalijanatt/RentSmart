@@ -2,29 +2,23 @@ use anchor_lang::prelude::*;
 
 declare_id!("B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX");
 
-/// RentSmart rental deposit escrow program.
+/// RentSmart rental deposit + rent escrow program.
 ///
 /// Each rental contract gets a single PDA (Program Derived Account) that:
 ///   - Stores the SHA-256 hash of the off-chain contract JSON
 ///   - Holds the tenant's SOL deposit in escrow
+///   - Holds pre-paid monthly rent contributed by the tenant
 ///   - Records check-in and check-out image hashes immutably
-///   - Releases funds to tenant/landlord on settlement
+///   - Releases rent to landlord automatically (authority-signed, no tenant needed)
+///   - Releases deposit to tenant/landlord on settlement
 ///
 /// PDA seeds: ["rental", contract_id_bytes]  (contract_id is a 36-byte UUID string)
-///
-/// Graceful degradation: if any instruction fails (e.g. RPC outage), the off-chain
-/// server continues operating — blockchain is a proof layer, not the critical path.
 #[program]
 pub mod rentsmart {
     use super::*;
 
     /// Initialize a new rental agreement PDA.
     /// Called by the backend authority when a contract is created (POST /contracts).
-    ///
-    /// # Arguments
-    /// * `contract_id`     - UUID string as [u8; 32], e.g. b"550e8400-e29b-41d4-a716-446655440000"
-    /// * `contract_hash`   - SHA-256 of the contract JSON (32 bytes)
-    /// * `deposit_lamports`- Deposit amount in lamports (converted from EUR by the server)
     pub fn initialize(
         ctx: Context<Initialize>,
         contract_id: [u8; 32],
@@ -35,8 +29,9 @@ pub mod rentsmart {
         agreement.contract_id = contract_id;
         agreement.contract_hash = contract_hash;
         agreement.deposit_lamports = deposit_lamports;
+        agreement.prepaid_rent_lamports = 0;
         agreement.landlord = ctx.accounts.landlord.key();
-        agreement.tenant = Pubkey::default(); // set when tenant calls lock_deposit
+        agreement.tenant = Pubkey::default();
         agreement.state = AgreementState::Created;
         agreement.checkin_hash = [0u8; 32];
         agreement.checkout_hash = [0u8; 32];
@@ -58,17 +53,16 @@ pub mod rentsmart {
         let deposit_lamports = ctx.accounts.agreement.deposit_lamports;
         let tenant_key = ctx.accounts.tenant.key();
 
-        // Transfer deposit from tenant's wallet into the PDA
-        let transfer_ix = anchor_lang::solana_program::system_instruction::transfer(
-            &tenant_key,
-            &ctx.accounts.agreement.key(),
-            deposit_lamports,
-        );
         anchor_lang::solana_program::program::invoke(
-            &transfer_ix,
+            &anchor_lang::solana_program::system_instruction::transfer(
+                &tenant_key,
+                &ctx.accounts.agreement.key(),
+                deposit_lamports,
+            ),
             &[
                 ctx.accounts.tenant.to_account_info(),
                 ctx.accounts.agreement.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
             ],
         )?;
 
@@ -78,12 +72,115 @@ pub mod rentsmart {
         Ok(())
     }
 
-    /// Record the SHA-256 hash of check-in inspection images on-chain.
-    /// Called by the backend authority after check-in is approved by the tenant
-    /// (POST /contracts/:id/checkin/approve).
+    /// Top up the pre-paid rent escrow balance.
+    /// The server builds this transaction unsigned; the tenant signs it on their mobile device.
+    /// Called when the tenant pre-loads one or more months of rent (POST /contracts/:id/rent/topup).
+    ///
+    /// The tenant deposits `amount_lamports` which must cover:
+    ///   rent_face_value × 1.005 per month (the extra 0.5% covers the tenant's platform fee share).
+    ///
+    /// State: allowed when DepositLocked or CheckinRecorded (any time during tenancy).
+    pub fn top_up_rent(ctx: Context<TopUpRent>, amount_lamports: u64) -> Result<()> {
+        require!(
+            ctx.accounts.agreement.state == AgreementState::DepositLocked
+                || ctx.accounts.agreement.state == AgreementState::CheckinRecorded,
+            RentSmartError::InvalidState
+        );
+        require!(amount_lamports > 0, RentSmartError::InvalidAmount);
+
+        anchor_lang::solana_program::program::invoke(
+            &anchor_lang::solana_program::system_instruction::transfer(
+                &ctx.accounts.tenant.key(),
+                &ctx.accounts.agreement.key(),
+                amount_lamports,
+            ),
+            &[
+                ctx.accounts.tenant.to_account_info(),
+                ctx.accounts.agreement.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+        )?;
+
+        let agreement = &mut ctx.accounts.agreement;
+        agreement.prepaid_rent_lamports = agreement
+            .prepaid_rent_lamports
+            .checked_add(amount_lamports)
+            .ok_or(RentSmartError::Overflow)?;
+        Ok(())
+    }
+
+    /// Release one month of rent from escrow to the landlord.
+    /// Signed by the backend authority — no tenant action required.
+    /// Called by the server's monthly cron job on the 1st of each month.
+    ///
+    /// Fee model:
+    ///   - Tenant pre-deposited rent × 1.005 per month (tenant's 0.5% share already included)
+    ///   - Landlord receives: rent_lamports × 0.995  (landlord's 0.5% deducted)
+    ///   - Platform receives: rent_lamports × 0.005 (tenant share) + rent_lamports × 0.005 (landlord share)
+    ///                      = rent_lamports × 0.01  (1% total)
+    ///   - Total withdrawn from PDA: rent_lamports × 1.005
     ///
     /// # Arguments
-    /// * `image_hash` - SHA-256(all check-in image hashes concatenated), 32 bytes
+    /// * `rent_lamports` - The face-value monthly rent in lamports (before fees)
+    pub fn release_monthly_rent(ctx: Context<ReleaseMonthlyRent>, rent_lamports: u64) -> Result<()> {
+        require!(
+            ctx.accounts.agreement.state == AgreementState::CheckinRecorded,
+            RentSmartError::InvalidState
+        );
+
+        const PLATFORM_FEE_BPS: u64 = 50; // 0.5%
+        const BPS_DIVISOR: u64 = 10_000;
+
+        let fee_from_tenant = rent_lamports
+            .checked_mul(PLATFORM_FEE_BPS)
+            .ok_or(RentSmartError::Overflow)?
+            .checked_div(BPS_DIVISOR)
+            .ok_or(RentSmartError::Overflow)?;
+
+        let fee_from_landlord = rent_lamports
+            .checked_mul(PLATFORM_FEE_BPS)
+            .ok_or(RentSmartError::Overflow)?
+            .checked_div(BPS_DIVISOR)
+            .ok_or(RentSmartError::Overflow)?;
+
+        let landlord_amount = rent_lamports
+            .checked_sub(fee_from_landlord)
+            .ok_or(RentSmartError::Overflow)?;
+
+        let platform_fee = fee_from_tenant
+            .checked_add(fee_from_landlord)
+            .ok_or(RentSmartError::Overflow)?;
+
+        // Total withdrawn from prepaid balance = landlord_amount + platform_fee = rent × 1.005
+        let total_release = landlord_amount
+            .checked_add(platform_fee)
+            .ok_or(RentSmartError::Overflow)?;
+
+        let agreement = &mut ctx.accounts.agreement;
+        require!(
+            agreement.prepaid_rent_lamports >= total_release,
+            RentSmartError::InsufficientRentBalance
+        );
+
+        // Deduct from escrow balance
+        agreement.prepaid_rent_lamports = agreement
+            .prepaid_rent_lamports
+            .checked_sub(total_release)
+            .ok_or(RentSmartError::Overflow)?;
+
+        // Transfer landlord_amount: PDA → landlord
+        **agreement.to_account_info().try_borrow_mut_lamports()? -= landlord_amount;
+        **ctx.accounts.landlord.to_account_info().try_borrow_mut_lamports()? += landlord_amount;
+
+        // Transfer platform_fee: PDA → platform
+        **agreement.to_account_info().try_borrow_mut_lamports()? -= platform_fee;
+        **ctx.accounts.platform.to_account_info().try_borrow_mut_lamports()? += platform_fee;
+
+        Ok(())
+    }
+
+    /// Record the SHA-256 hash of check-in inspection images on-chain.
+    /// Called by the backend authority after check-in is approved by the tenant.
     pub fn record_checkin(ctx: Context<RecordCheckin>, image_hash: [u8; 32]) -> Result<()> {
         let agreement = &mut ctx.accounts.agreement;
         require!(
@@ -96,11 +193,7 @@ pub mod rentsmart {
     }
 
     /// Record the SHA-256 hash of check-out inspection images on-chain.
-    /// Called by the backend authority after check-out is approved by the landlord
-    /// (POST /contracts/:id/checkout/approve).
-    ///
-    /// # Arguments
-    /// * `image_hash` - SHA-256(all check-out image hashes concatenated), 32 bytes
+    /// Called by the backend authority after check-out is approved by the landlord.
     pub fn record_checkout(ctx: Context<RecordCheckout>, image_hash: [u8; 32]) -> Result<()> {
         let agreement = &mut ctx.accounts.agreement;
         require!(
@@ -112,90 +205,8 @@ pub mod rentsmart {
         Ok(())
     }
 
-    /// Pay monthly rent on-chain.
-    /// The tenant signs this transaction on their mobile device (server builds it unsigned).
-    /// Called when the tenant initiates a monthly rent payment (POST /contracts/:id/rent/pay).
-    ///
-    /// Fee model (both deducted from the rent amount):
-    ///   - 0.5% platform fee charged to the tenant  (added on top of rent)
-    ///   - 0.5% platform fee charged to the landlord (deducted from what they receive)
-    ///   Total platform fee = 1% of rent; landlord net = 99% of rent
-    ///
-    /// # Arguments
-    /// * `rent_lamports` - Agreed monthly rent amount in lamports (before any fees)
-    pub fn pay_rent(ctx: Context<PayRent>, rent_lamports: u64) -> Result<()> {
-        require!(
-            ctx.accounts.agreement.state == AgreementState::CheckinRecorded,
-            RentSmartError::InvalidState
-        );
-
-        const PLATFORM_FEE_BPS: u64 = 50; // 0.5% = 50 basis points
-        const BPS_DIVISOR: u64 = 10_000;
-
-        // 0.5% added on top of rent — paid by tenant to platform
-        let fee_from_tenant = rent_lamports
-            .checked_mul(PLATFORM_FEE_BPS)
-            .ok_or(RentSmartError::Overflow)?
-            .checked_div(BPS_DIVISOR)
-            .ok_or(RentSmartError::Overflow)?;
-
-        // 0.5% deducted from rent — paid by landlord to platform
-        let fee_from_landlord = rent_lamports
-            .checked_mul(PLATFORM_FEE_BPS)
-            .ok_or(RentSmartError::Overflow)?
-            .checked_div(BPS_DIVISOR)
-            .ok_or(RentSmartError::Overflow)?;
-
-        // Landlord receives rent minus their platform fee share
-        let landlord_amount = rent_lamports
-            .checked_sub(fee_from_landlord)
-            .ok_or(RentSmartError::Overflow)?;
-
-        // Platform receives both fee contributions
-        let platform_fee = fee_from_tenant
-            .checked_add(fee_from_landlord)
-            .ok_or(RentSmartError::Overflow)?;
-
-        // Transfer landlord_amount: tenant → landlord
-        anchor_lang::solana_program::program::invoke(
-            &anchor_lang::solana_program::system_instruction::transfer(
-                &ctx.accounts.tenant.key(),
-                &ctx.accounts.landlord.key(),
-                landlord_amount,
-            ),
-            &[
-                ctx.accounts.tenant.to_account_info(),
-                ctx.accounts.landlord.to_account_info(),
-                ctx.accounts.system_program.to_account_info(),
-            ],
-        )?;
-
-        // Transfer platform_fee: tenant → platform  (covers both sides' 0.5%)
-        anchor_lang::solana_program::program::invoke(
-            &anchor_lang::solana_program::system_instruction::transfer(
-                &ctx.accounts.tenant.key(),
-                &ctx.accounts.platform.key(),
-                platform_fee,
-            ),
-            &[
-                ctx.accounts.tenant.to_account_info(),
-                ctx.accounts.platform.to_account_info(),
-                ctx.accounts.system_program.to_account_info(),
-            ],
-        )?;
-
-        Ok(())
-    }
-
-    /// Execute the settlement: release escrowed SOL to tenant and landlord.
+    /// Execute the settlement: release escrowed deposit to tenant and landlord.
     /// Amounts come from the deterministic rule engine on the server.
-    /// Called by the backend authority on finalization (POST /contracts/:id/finalize).
-    ///
-    /// # Arguments
-    /// * `settlement_hash`  - SHA-256 of the settlement JSON result (32 bytes)
-    /// * `tenant_lamports`  - Amount to return to tenant
-    /// * `landlord_lamports`- Amount to transfer to landlord (deductions)
-    ///
     /// Constraint: tenant_lamports + landlord_lamports == agreement.deposit_lamports
     pub fn execute_settlement(
         ctx: Context<ExecuteSettlement>,
@@ -216,28 +227,14 @@ pub mod rentsmart {
             RentSmartError::SettlementMismatch
         );
 
-        // Release to tenant
         if tenant_lamports > 0 {
-            **agreement
-                .to_account_info()
-                .try_borrow_mut_lamports()? -= tenant_lamports;
-            **ctx
-                .accounts
-                .tenant
-                .to_account_info()
-                .try_borrow_mut_lamports()? += tenant_lamports;
+            **agreement.to_account_info().try_borrow_mut_lamports()? -= tenant_lamports;
+            **ctx.accounts.tenant.to_account_info().try_borrow_mut_lamports()? += tenant_lamports;
         }
 
-        // Release deductions to landlord
         if landlord_lamports > 0 {
-            **agreement
-                .to_account_info()
-                .try_borrow_mut_lamports()? -= landlord_lamports;
-            **ctx
-                .accounts
-                .landlord
-                .to_account_info()
-                .try_borrow_mut_lamports()? += landlord_lamports;
+            **agreement.to_account_info().try_borrow_mut_lamports()? -= landlord_lamports;
+            **ctx.accounts.landlord.to_account_info().try_borrow_mut_lamports()? += landlord_lamports;
         }
 
         agreement.settlement_hash = settlement_hash;
@@ -260,7 +257,6 @@ pub struct Initialize<'info> {
     )]
     pub agreement: Account<'info, RentalAgreement>,
 
-    /// Backend authority keypair — pays for account creation
     #[account(mut)]
     pub authority: Signer<'info>,
 
@@ -279,11 +275,49 @@ pub struct LockDeposit<'info> {
     )]
     pub agreement: Account<'info, RentalAgreement>,
 
-    /// Tenant must sign — they are sending their own SOL into escrow
     #[account(mut)]
     pub tenant: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct TopUpRent<'info> {
+    #[account(
+        mut,
+        seeds = [b"rental", agreement.contract_id.as_ref()],
+        bump = agreement.bump,
+        constraint = agreement.tenant == tenant.key() @ RentSmartError::Unauthorized
+    )]
+    pub agreement: Account<'info, RentalAgreement>,
+
+    /// Tenant must sign — they are depositing pre-paid rent from their wallet
+    #[account(mut)]
+    pub tenant: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ReleaseMonthlyRent<'info> {
+    #[account(
+        mut,
+        seeds = [b"rental", agreement.contract_id.as_ref()],
+        bump = agreement.bump,
+        constraint = agreement.landlord == landlord.key() @ RentSmartError::Unauthorized
+    )]
+    pub agreement: Account<'info, RentalAgreement>,
+
+    /// Backend authority signs — triggered by the server monthly cron job
+    pub authority: Signer<'info>,
+
+    /// CHECK: landlord wallet — receives rent minus their 0.5% fee share
+    #[account(mut)]
+    pub landlord: AccountInfo<'info>,
+
+    /// CHECK: platform fee wallet — receives 1% total
+    #[account(mut)]
+    pub platform: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -295,7 +329,6 @@ pub struct RecordCheckin<'info> {
     )]
     pub agreement: Account<'info, RentalAgreement>,
 
-    /// Backend authority signs — confirms landlord check-in images were approved
     pub authority: Signer<'info>,
 }
 
@@ -308,34 +341,7 @@ pub struct RecordCheckout<'info> {
     )]
     pub agreement: Account<'info, RentalAgreement>,
 
-    /// Backend authority signs — confirms tenant check-out images were approved
     pub authority: Signer<'info>,
-}
-
-#[derive(Accounts)]
-pub struct PayRent<'info> {
-    /// Agreement PDA — read-only, used to verify state and constrain landlord/tenant accounts
-    #[account(
-        seeds = [b"rental", agreement.contract_id.as_ref()],
-        bump = agreement.bump,
-        constraint = agreement.tenant == tenant.key() @ RentSmartError::Unauthorized,
-        constraint = agreement.landlord == landlord.key() @ RentSmartError::Unauthorized
-    )]
-    pub agreement: Account<'info, RentalAgreement>,
-
-    /// Tenant must sign — they pay rent + their share of platform fee from their wallet
-    #[account(mut)]
-    pub tenant: Signer<'info>,
-
-    /// CHECK: landlord wallet — receives rent minus their 0.5% platform fee share
-    #[account(mut)]
-    pub landlord: AccountInfo<'info>,
-
-    /// CHECK: platform fee wallet — receives 1% total (0.5% from each side)
-    #[account(mut)]
-    pub platform: AccountInfo<'info>,
-
-    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -347,7 +353,6 @@ pub struct ExecuteSettlement<'info> {
     )]
     pub agreement: Account<'info, RentalAgreement>,
 
-    /// Backend authority signs — confirms settlement was computed by rule engine
     pub authority: Signer<'info>,
 
     /// CHECK: tenant wallet — receives their portion of the deposit
@@ -363,33 +368,35 @@ pub struct ExecuteSettlement<'info> {
 
 #[account]
 pub struct RentalAgreement {
-    pub contract_id: [u8; 32],       // UUID string bytes (first 32 of 36 ASCII chars)
-    pub contract_hash: [u8; 32],     // SHA-256 of contract JSON
-    pub deposit_lamports: u64,       // Total deposit locked in this PDA
-    pub landlord: Pubkey,            // Landlord's Solana wallet
-    pub tenant: Pubkey,              // Tenant's Solana wallet (set on lock_deposit)
-    pub state: AgreementState,       // Current lifecycle state (1 byte enum)
-    pub checkin_hash: [u8; 32],      // SHA-256 of check-in image hashes
-    pub checkout_hash: [u8; 32],     // SHA-256 of check-out image hashes
-    pub settlement_hash: [u8; 32],   // SHA-256 of settlement result JSON
-    pub created_at: i64,             // Unix timestamp of contract initialization
-    pub bump: u8,                    // PDA bump seed, stored for mutable constraints
+    pub contract_id: [u8; 32],            // UUID string bytes (first 32 of 36 ASCII chars)
+    pub contract_hash: [u8; 32],          // SHA-256 of contract JSON
+    pub deposit_lamports: u64,            // Security deposit locked in this PDA
+    pub prepaid_rent_lamports: u64,       // Pre-paid rent balance contributed by tenant
+    pub landlord: Pubkey,                 // Landlord's Solana wallet
+    pub tenant: Pubkey,                   // Tenant's Solana wallet (set on lock_deposit)
+    pub state: AgreementState,            // Current lifecycle state (1 byte enum)
+    pub checkin_hash: [u8; 32],           // SHA-256 of check-in image hashes
+    pub checkout_hash: [u8; 32],          // SHA-256 of check-out image hashes
+    pub settlement_hash: [u8; 32],        // SHA-256 of settlement result JSON
+    pub created_at: i64,                  // Unix timestamp of contract initialization
+    pub bump: u8,                         // PDA bump seed
 }
 
 impl RentalAgreement {
     // discriminator(8) + contract_id(32) + contract_hash(32) + deposit_lamports(8)
-    // + landlord(32) + tenant(32) + state(1) + checkin_hash(32)
-    // + checkout_hash(32) + settlement_hash(32) + created_at(8) + bump(1) + padding(6)
-    pub const SIZE: usize = 8 + 32 + 32 + 8 + 32 + 32 + 1 + 32 + 32 + 32 + 8 + 1 + 6;
+    // + prepaid_rent_lamports(8) + landlord(32) + tenant(32) + state(1)
+    // + checkin_hash(32) + checkout_hash(32) + settlement_hash(32)
+    // + created_at(8) + bump(1) + padding(4)
+    pub const SIZE: usize = 8 + 32 + 32 + 8 + 8 + 32 + 32 + 1 + 32 + 32 + 32 + 8 + 1 + 4;
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
 pub enum AgreementState {
     Created,          // initialize() called
-    DepositLocked,    // lock_deposit() called — SOL is in escrow
-    CheckinRecorded,  // record_checkin() called
+    DepositLocked,    // lock_deposit() called — security deposit is in escrow
+    CheckinRecorded,  // record_checkin() called — rent releases become active
     CheckoutRecorded, // record_checkout() called
-    Settled,          // execute_settlement() called — funds released
+    Settled,          // execute_settlement() called — deposit released
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
@@ -407,4 +414,10 @@ pub enum RentSmartError {
 
     #[msg("Arithmetic overflow during fee calculation")]
     Overflow,
+
+    #[msg("Prepaid rent balance is insufficient for this release")]
+    InsufficientRentBalance,
+
+    #[msg("Amount must be greater than zero")]
+    InvalidAmount,
 }

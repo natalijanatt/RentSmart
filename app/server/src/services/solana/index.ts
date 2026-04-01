@@ -1,6 +1,6 @@
 import type { ISolanaService } from './ISolanaService.js';
 
-export type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaRentPaymentTxResult, SolanaSettlementResult } from './ISolanaService.js';
+export type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaReleaseRentResult, SolanaSettlementResult, SolanaTopUpRentTxResult } from './ISolanaService.js';
 
 /**
  * Factory: instantiates the real SolanaService from @rentsmart/blockchain.

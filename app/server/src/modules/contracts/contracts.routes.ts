@@ -13,10 +13,11 @@ import {
 } from './contracts.service.js';
 import { acceptContractBodySchema, cancelContractBodySchema, createContractBodySchema } from './contracts.schema.js';
 import {
-  buildRentPaymentTx,
-  confirmRentPaymentBodySchema,
-  confirmRentPayment,
-  listRentPayments,
+  buildTopUpRentBodySchema,
+  buildTopUpRentTx,
+  confirmTopUpBodySchema,
+  confirmTopUp,
+  listRentActivity,
 } from './rent.service.js';
 
 export const contractsRouter = Router();
@@ -75,29 +76,30 @@ contractsRouter.post(
   }),
 );
 
-// ── Monthly rent payment ──────────────────────────────────────────────────────
+// ── Rent escrow ───────────────────────────────────────────────────────────────
 
 contractsRouter.post(
-  '/:id/rent/pay',
+  '/:id/rent/topup',
+  validate(buildTopUpRentBodySchema),
   asyncHandler(async (req, res) => {
-    const result = await buildRentPaymentTx(req.params.id as string, req.user!.id);
+    const result = await buildTopUpRentTx(req.params.id as string, req.user!.id, req.body);
     res.json(result);
   }),
 );
 
 contractsRouter.post(
-  '/:id/rent/confirm',
-  validate(confirmRentPaymentBodySchema),
+  '/:id/rent/topup/confirm',
+  validate(confirmTopUpBodySchema),
   asyncHandler(async (req, res) => {
-    const payment = await confirmRentPayment(req.params.id as string, req.user!.id, req.body);
-    res.status(201).json({ payment });
+    const topUp = await confirmTopUp(req.params.id as string, req.user!.id, req.body);
+    res.status(201).json({ top_up: topUp });
   }),
 );
 
 contractsRouter.get(
   '/:id/rent',
   asyncHandler(async (req, res) => {
-    const payments = await listRentPayments(req.params.id as string, req.user!.id);
-    res.json({ payments });
+    const activity = await listRentActivity(req.params.id as string, req.user!.id);
+    res.json(activity);
   }),
 );
