@@ -246,7 +246,20 @@ X-Mock-User: {"id":"landlord-uuid","phone":"+381641111111","display_name":"Landl
           },
         },
         responses: {
-          '200': { description: 'Contract accepted', content: { 'application/json': { schema: { type: 'object', properties: { contract: { $ref: '#/components/schemas/Contract' } } } } } },
+          '200': {
+            description: 'Contract accepted. Returns contract + unsigned Solana lock_deposit transaction for tenant to sign on their device.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    contract: { $ref: '#/components/schemas/Contract' },
+                    solana_lock_deposit_tx: { type: 'string', description: 'Base64-encoded unsigned Solana transaction. Tenant must sign and broadcast this to lock the deposit on-chain.' },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -493,6 +506,141 @@ X-Mock-User: {"id":"landlord-uuid","phone":"+381641111111","display_name":"Landl
         summary: 'Get full audit trail for a contract',
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
         responses: { '200': { description: 'Audit trail' } },
+      },
+    },
+
+    // ── Monthly Rent Payments ─────────────────────────────────────────────────
+    '/contracts/{id}/rent/pay': {
+      post: {
+        tags: ['Rent Payments'],
+        summary: 'Build unsigned pay_rent transaction (tenant)',
+        description: 'Returns a base64-encoded unsigned Solana transaction for the tenant to sign and broadcast from their device.\n\n**Fee model (enforced on-chain):**\n- Tenant sends: rent + 0.5% platform fee\n- Landlord receives: rent − 0.5% platform fee\n- Platform collects: 1% of rent total\n\nAfter broadcasting, call `POST /contracts/{id}/rent/confirm` with the `tx_signature`.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        security: [{ BearerAuth: [] }, { MockUser: [] }],
+        responses: {
+          '200': {
+            description: 'Unsigned transaction ready for tenant to sign',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    serialized_tx: { type: 'string', description: 'Base64-encoded unsigned Solana transaction' },
+                    rent_amount_eur: { type: 'number', example: 400 },
+                    rent_lamports: { type: 'integer', example: 4000000 },
+                    landlord_amount: { type: 'integer', description: 'Lamports landlord receives (rent − 0.5%)', example: 3980000 },
+                    platform_fee_total: { type: 'integer', description: 'Total platform fee in lamports (1%)', example: 40000 },
+                  },
+                },
+              },
+            },
+          },
+          '400': { description: 'Contract not in active status' },
+          '403': { description: 'Only the tenant can pay rent' },
+          '404': { description: 'Contract not found' },
+          '409': { description: 'Tenant or landlord missing a Solana wallet' },
+        },
+      },
+    },
+
+    '/contracts/{id}/rent/confirm': {
+      post: {
+        tags: ['Rent Payments'],
+        summary: 'Confirm a broadcast rent payment (tenant)',
+        description: 'Called after the tenant has signed and broadcast the transaction from their device. Records the payment in the database and logs a `RENT_PAID` audit event.\n\nPrevents duplicates: same `tx_signature` or same `period_month`/`period_year` pair will be rejected.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        security: [{ BearerAuth: [] }, { MockUser: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tx_signature', 'period_month', 'period_year'],
+                properties: {
+                  tx_signature: { type: 'string', maxLength: 88, description: 'Solana transaction signature returned after broadcast', example: '5j7s8KxP...' },
+                  period_month: { type: 'integer', minimum: 1, maximum: 12, example: 4 },
+                  period_year: { type: 'integer', minimum: 2024, example: 2026 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '201': {
+            description: 'Payment recorded',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    payment: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        contract_id: { type: 'string', format: 'uuid' },
+                        tenant_id: { type: 'string', format: 'uuid' },
+                        rent_amount_eur: { type: 'number' },
+                        rent_lamports: { type: 'integer' },
+                        landlord_amount_lamports: { type: 'integer' },
+                        platform_fee_lamports: { type: 'integer' },
+                        tx_signature: { type: 'string' },
+                        period_month: { type: 'integer' },
+                        period_year: { type: 'integer' },
+                        paid_at: { type: 'string', format: 'date-time' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '403': { description: 'Only the tenant can confirm payment' },
+          '409': { description: 'Duplicate tx_signature or period already paid' },
+        },
+      },
+    },
+
+    '/contracts/{id}/rent': {
+      get: {
+        tags: ['Rent Payments'],
+        summary: 'List all rent payments for a contract',
+        description: 'Returns all confirmed on-chain rent payments ordered by period (oldest first). Accessible by both landlord and tenant.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        security: [{ BearerAuth: [] }, { MockUser: [] }],
+        responses: {
+          '200': {
+            description: 'Rent payment history',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    payments: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string', format: 'uuid' },
+                          rent_amount_eur: { type: 'number' },
+                          rent_lamports: { type: 'integer' },
+                          landlord_amount_lamports: { type: 'integer' },
+                          platform_fee_lamports: { type: 'integer' },
+                          tx_signature: { type: 'string' },
+                          period_month: { type: 'integer' },
+                          period_year: { type: 'integer' },
+                          paid_at: { type: 'string', format: 'date-time' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '403': { description: 'Access denied' },
+          '404': { description: 'Contract not found' },
+        },
       },
     },
   },
