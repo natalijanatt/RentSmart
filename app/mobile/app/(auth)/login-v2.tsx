@@ -14,9 +14,26 @@ import { useAuthStore } from '../../store/authStore';
 import { authService } from '../../services';
 import { Button, InputField, ErrorMessage, LoadingOverlay } from '../../components';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
+import type { UserRole } from '../../store/authStore';
+
+// Mock phone → server mock token mapping
+// firebase_token is what POST /auth/verify accepts in MOCK_AUTH mode
+// mockUserKey is what X-Mock-User header expects on protected routes
+const MOCK_USERS: Record<string, { firebaseToken: string; mockUserKey: string; role: UserRole }> = {
+  '+381641234567': {
+    firebaseToken: 'mock_landlord_marko',
+    mockUserKey: 'landlord_marko',
+    role: 'landlord',
+  },
+  '+381697654321': {
+    firebaseToken: 'mock_tenant_ana',
+    mockUserKey: 'tenant_ana',
+    role: 'tenant',
+  },
+};
 
 export default function LoginScreen() {
-  const [phone, setPhone] = useState('+38161234567');
+  const [phone, setPhone] = useState('+381641234567');
   const [isOtpMode, setIsOtpMode] = useState(false);
   const [otp, setOtp] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -24,19 +41,31 @@ export default function LoginScreen() {
 
   const { setUser, setFirebaseToken, setUserRole } = useAuthStore();
 
-  const handleRequestOtp = async () => {
-    if (!phone) {
+  const handleRequestOtp = () => {
+    const normalized = phone.trim();
+    if (!normalized) {
       setError('Unesite broj telefona');
       return;
     }
-    // In a real app, Firebase would send OTP
+    if (!MOCK_USERS[normalized]) {
+      setError(
+        'Testni brojevi:\n+381641234567 (stanodavac Marko)\n+381697654321 (zakupac Ana)',
+      );
+      return;
+    }
     setIsOtpMode(true);
     setError(null);
   };
 
   const handleVerifyOtp = async () => {
-    if (!otp) {
+    if (otp.length < 4) {
       setError('Unesite OTP kod');
+      return;
+    }
+
+    const mock = MOCK_USERS[phone.trim()];
+    if (!mock) {
+      setError('Nepoznat broj telefona');
       return;
     }
 
@@ -44,24 +73,19 @@ export default function LoginScreen() {
     setError(null);
 
     try {
-      // Mock Firebase token
-      const mockToken = 'firebase-token-' + Math.random().toString(36).substring(2);
-
       const response = await authService.verifyAuth({
-        firebase_token: mockToken,
-        device_id: 'device-' + Math.random().toString(36).substring(7),
+        firebase_token: mock.firebaseToken,
+        device_id: mock.mockUserKey + '-device',
       });
 
-      setFirebaseToken(mockToken);
+      // Store mockUserKey as firebaseToken — used as X-Mock-User on all subsequent calls
+      setFirebaseToken(mock.mockUserKey);
       setUser(response.user);
 
-      // If user has no display name or is new, go to register for profile completion + role
       if (!response.user.display_name) {
-        router.replace('/(auth)/register');
+        router.replace('/(auth)/register-v2');
       } else {
-        // Existing user — still need role selection if not set
-        // For mock, default to landlord for the demo user
-        setUserRole('landlord');
+        setUserRole(mock.role);
         router.replace('/(tabs)');
       }
     } catch (err) {
@@ -72,7 +96,7 @@ export default function LoginScreen() {
   };
 
   const handleGoToRegister = () => {
-    router.push('/(auth)/register');
+    router.push('/(auth)/register-v2');
   };
 
   return (
@@ -112,7 +136,10 @@ export default function LoginScreen() {
             ) : (
               <>
                 <Text style={[styles.otpPrompt, Typography.body]}>
-                  Unesite 6-cifreni kod poslat na {phone}
+                  Unesite kod poslat na {phone}
+                </Text>
+                <Text style={[styles.otpHint, Typography.bodySmall]}>
+                  (Testni režim — unesite bilo koji kod)
                 </Text>
                 <InputField
                   label="Jednokratna lozinka"
@@ -200,8 +227,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   otpPrompt: {
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.xs,
     color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  otpHint: {
+    marginBottom: Spacing.lg,
+    color: Colors.textTertiary,
     textAlign: 'center',
   },
   registerSection: {

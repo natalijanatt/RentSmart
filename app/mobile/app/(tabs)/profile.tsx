@@ -20,7 +20,7 @@ export default function ProfileScreen() {
         onPress: () => {
           logout();
           resetContracts();
-          router.replace('/(auth)/login');
+          router.replace('/(auth)/login-v2');
         },
       },
     ]);

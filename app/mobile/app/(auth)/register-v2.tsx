@@ -39,20 +39,26 @@ export default function RegisterScreen() {
       return;
     }
 
+    // No token means user came here without going through login/OTP first
+    if (!user && !firebaseToken) {
+      router.replace('/(auth)/login-v2');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      // If we already have a user from login, just update the name
       if (user) {
+        // User already verified via login — just update display name locally
         setUser({ ...user, display_name: displayName });
-      } else {
-        // Fresh registration — call verifyAuth
-        const mockToken = firebaseToken || 'firebase-token-' + Math.random().toString(36).substring(2);
+      } else if (firebaseToken) {
+        // firebaseToken holds the mockUserKey (e.g. "landlord_marko")
+        // Derive the firebase_token the server expects: "mock_landlord_marko"
         const response = await authService.verifyAuth({
-          firebase_token: mockToken,
+          firebase_token: `mock_${firebaseToken}`,
           display_name: displayName,
-          device_id: 'device-' + Math.random().toString(36).substring(7),
+          device_id: `${firebaseToken}-device`,
         });
         setUser(response.user);
       }

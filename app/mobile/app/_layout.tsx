@@ -18,8 +18,8 @@ export const linking = {
       contract: 'contract/:id',
       '(auth)': {
         screens: {
-          login: 'login',
-          register: 'register',
+          'login-v2': 'login',
+          'register-v2': 'register',
         },
       },
       '(tabs)': {
@@ -60,7 +60,7 @@ export default function RootLayout() {
       if (user) {
         router.replace('/(tabs)');
       } else {
-        router.replace('/(auth)/login');
+        router.replace('/(auth)/login-v2');
       }
     }
   }, [fontsLoaded, user]);
