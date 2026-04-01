@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaSettlementResult } from './ISolanaService';
+import type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaRentPaymentTxResult, SolanaSettlementResult } from './ISolanaService';
 
 /**
  * MockSolanaService — used when SOLANA_PROGRAM_ID is not set.
@@ -53,6 +53,23 @@ export class MockSolanaService implements ISolanaService {
   ): Promise<{ tx_signature: string }> {
     console.log(`[MockSolana] recordCheckout: ${contractId}`);
     return { tx_signature: `mock_tx_checkout_${contractId.slice(0, 8)}` };
+  }
+
+  async buildPayRentTx(
+    contractId: string,
+    _tenantPubkey: string,
+    _landlordPubkey: string,
+    _platformPubkey: string,
+    rentLamports: number,
+  ): Promise<SolanaRentPaymentTxResult> {
+    const feePerSide = Math.floor((rentLamports * 50) / 10_000);
+    console.log(`[MockSolana] buildPayRentTx: ${contractId} — rent=${rentLamports}`);
+    return {
+      serialized_tx: `mock_rent_tx_${contractId.slice(0, 8)}`,
+      rent_lamports: rentLamports,
+      landlord_amount: rentLamports - feePerSide,
+      platform_fee_total: feePerSide * 2,
+    };
   }
 
   async executeSettlement(

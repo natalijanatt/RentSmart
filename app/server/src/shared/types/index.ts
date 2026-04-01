@@ -100,6 +100,21 @@ export interface DbAuditEvent {
   created_at: Date;
 }
 
+export interface DbRentPayment {
+  id: string;
+  contract_id: string;
+  tenant_id: string;
+  rent_amount_eur: string;
+  rent_lamports: string;
+  landlord_amount_lamports: string;
+  platform_fee_lamports: string;
+  tx_signature: string;
+  period_month: number;
+  period_year: number;
+  paid_at: Date;
+  created_at: Date;
+}
+
 export interface DbAnalysisResult {
   id: string;
   contract_id: string;

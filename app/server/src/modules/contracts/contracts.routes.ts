@@ -12,6 +12,12 @@ import {
   listContracts,
 } from './contracts.service.js';
 import { acceptContractBodySchema, cancelContractBodySchema, createContractBodySchema } from './contracts.schema.js';
+import {
+  buildRentPaymentTx,
+  confirmRentPaymentBodySchema,
+  confirmRentPayment,
+  listRentPayments,
+} from './rent.service.js';
 
 export const contractsRouter = Router();
 
@@ -55,8 +61,8 @@ contractsRouter.post(
   '/:id/accept',
   validate(acceptContractBodySchema),
   asyncHandler(async (req, res) => {
-    const contract = await acceptContract(req.params.id as string, req.user!.id, req.body.invite_code);
-    res.json({ contract });
+    const result = await acceptContract(req.params.id as string, req.user!.id, req.body.invite_code);
+    res.json({ contract: result.contract, solana_lock_deposit_tx: result.solana_lock_deposit_tx });
   }),
 );
 
@@ -66,5 +72,32 @@ contractsRouter.post(
   asyncHandler(async (req, res) => {
     const contract = await cancelContract(req.params.id as string, req.user!.id, req.body.reason);
     res.json({ contract });
+  }),
+);
+
+// ── Monthly rent payment ──────────────────────────────────────────────────────
+
+contractsRouter.post(
+  '/:id/rent/pay',
+  asyncHandler(async (req, res) => {
+    const result = await buildRentPaymentTx(req.params.id as string, req.user!.id);
+    res.json(result);
+  }),
+);
+
+contractsRouter.post(
+  '/:id/rent/confirm',
+  validate(confirmRentPaymentBodySchema),
+  asyncHandler(async (req, res) => {
+    const payment = await confirmRentPayment(req.params.id as string, req.user!.id, req.body);
+    res.status(201).json({ payment });
+  }),
+);
+
+contractsRouter.get(
+  '/:id/rent',
+  asyncHandler(async (req, res) => {
+    const payments = await listRentPayments(req.params.id as string, req.user!.id);
+    res.json({ payments });
   }),
 );

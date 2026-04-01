@@ -32,6 +32,13 @@ export interface SolanaAgreement {
   explorer_url: string;         // Solana Explorer URL for the PDA account
 }
 
+export interface SolanaRentPaymentTxResult {
+  serialized_tx: string;   // base64-encoded unsigned transaction; tenant signs on their device
+  rent_lamports: number;   // agreed rent amount in lamports
+  landlord_amount: number; // rent_lamports * 0.995 — what landlord receives
+  platform_fee_total: number; // rent_lamports * 0.01 — total platform fee (1%)
+}
+
 export interface ISolanaService {
   /** Derive the PDA address for a contract without hitting the network. */
   findPDA(contractId: string): { pda: string; bump: number };
@@ -76,6 +83,19 @@ export interface ISolanaService {
     imageHash: Buffer,
     tenantPubkey: string,
   ): Promise<{ tx_signature: string }>;
+
+  /**
+   * Called on POST /contracts/:id/rent/pay.
+   * Builds an unsigned pay_rent transaction for the tenant to sign on their device.
+   * Fee model: tenant pays rent + 0.5%, landlord receives rent - 0.5%, platform gets 1%.
+   */
+  buildPayRentTx(
+    contractId: string,
+    tenantPubkey: string,
+    landlordPubkey: string,
+    platformPubkey: string,
+    rentLamports: number,
+  ): Promise<SolanaRentPaymentTxResult>;
 
   /**
    * Called on POST /contracts/:id/settlement/approve (when second side approves).

@@ -4,6 +4,7 @@ import type { AuditEventType, Contract, ContractStatus, InspectionImage, Inspect
 
 import { withTransaction, query, queryOne } from '../../shared/db/index.js';
 import { supabase, STORAGE_BUCKET } from '../../shared/db/supabase.js';
+import { getSolanaService } from '../../services/solana/instance.js';
 import type { DbContract, DbInspectionImage, DbRoom } from '../../shared/types/index.js';
 import { AppError } from '../../shared/utils/errors.js';
 import { haversineDistance, GPS_MAX_DISTANCE_M } from '../../shared/utils/geo.js';
@@ -393,6 +394,38 @@ export async function approveInspection(
 
     assertActor(actorId, c, cfg.approveActor, `approve ${type === 'checkin' ? 'check-in' : 'check-out'}`);
     validateTransition(c.status as Contract['status'], cfg.approvedTargetStatus, cfg.approveActor);
+
+    // Record image hash on-chain before updating DB status
+    const imageRows = await client.query<{ image_hash: string }>(
+      `SELECT image_hash FROM inspection_images WHERE contract_id = $1 AND inspection_type = $2`,
+      [contractId, type],
+    );
+    const solana = getSolanaService();
+    const combinedImageHash = solana.hashImages(imageRows.rows.map((r) => r.image_hash));
+
+    if (type === 'checkin') {
+      // checkin is approved by tenant — record with landlord pubkey for reference
+      const landlordRow = await client.query<{ solana_pubkey: string | null }>(
+        `SELECT solana_pubkey FROM users WHERE id = $1`,
+        [c.landlord_id],
+      );
+      await solana.recordCheckin(
+        contractId,
+        combinedImageHash,
+        landlordRow.rows[0]?.solana_pubkey ?? 'unknown',
+      );
+    } else {
+      // checkout is approved by landlord — record with tenant pubkey for reference
+      const tenantRow = await client.query<{ solana_pubkey: string | null }>(
+        `SELECT solana_pubkey FROM users WHERE id = $1`,
+        [c.tenant_id!],
+      );
+      await solana.recordCheckout(
+        contractId,
+        combinedImageHash,
+        tenantRow.rows[0]?.solana_pubkey ?? 'unknown',
+      );
+    }
 
     const updated = await client.query<DbContract>(
       `UPDATE contracts SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,

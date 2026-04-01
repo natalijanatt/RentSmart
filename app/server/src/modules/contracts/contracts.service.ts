@@ -3,7 +3,8 @@ import type { PoolClient } from 'pg';
 import type { Contract, CreateContractBody } from '@rentsmart/contracts';
 
 import { query, queryOne, withTransaction } from '../../shared/db/index.js';
-import type { DbContract, DbRoom } from '../../shared/types/index.js';
+import { getSolanaService } from '../../services/solana/instance.js';
+import type { DbContract, DbRoom, DbUser } from '../../shared/types/index.js';
 import { AppError } from '../../shared/utils/errors.js';
 import { sha256 } from '../../shared/utils/hash.js';
 import { toContract } from '../../shared/utils/mappers.js';
@@ -89,6 +90,40 @@ export async function createContract(
 
     const contractRow = contractResult.rows[0];
     if (!contractRow) throw AppError.internal('Failed to insert contract.');
+
+    // Initialize on-chain PDA — mandatory
+    const landlordResult = await client.query<DbUser>(
+      `SELECT solana_pubkey FROM users WHERE id = $1`,
+      [landlordId],
+    );
+    const landlordPubkey = landlordResult.rows[0]?.solana_pubkey;
+    if (!landlordPubkey) throw AppError.conflict('Landlord must register a Solana wallet before creating a contract.');
+
+    const solana = getSolanaService();
+    const depositLamports = solana.eurToLamports(body.deposit_amount_eur);
+    const contractHashBuffer = Buffer.from(contractHash, 'hex');
+    const solanaResult = await solana.initializeContract(
+      contractRow.id,
+      contractHashBuffer,
+      depositLamports,
+      landlordPubkey,
+    );
+
+    await client.query(
+      `UPDATE contracts SET solana_pda = $1, solana_tx_init = $2 WHERE id = $3`,
+      [solanaResult.pda_address, solanaResult.tx_signature, contractRow.id],
+    );
+    contractRow.solana_pda = solanaResult.pda_address;
+    contractRow.solana_tx_init = solanaResult.tx_signature;
+
+    await logAuditEvent(
+      contractRow.id,
+      'CONTRACT_HASH_STORED',
+      landlordId,
+      'landlord',
+      { solana_pda: solanaResult.pda_address, solana_tx: solanaResult.tx_signature },
+      client,
+    );
 
     const roomRows: DbRoom[] = [];
     for (let i = 0; i < body.rooms.length; i++) {
@@ -177,7 +212,11 @@ export async function getContractByInviteCode(code: string): Promise<Contract> {
   return toContract(contractRow, roomRows);
 }
 
-export async function acceptContract(contractId: string, tenantId: string, inviteCode: string): Promise<Contract> {
+export async function acceptContract(
+  contractId: string,
+  tenantId: string,
+  inviteCode: string,
+): Promise<{ contract: Contract; solana_lock_deposit_tx: string }> {
   return withTransaction(async (client) => {
     const result = await client.query<DbContract>(
       `SELECT * FROM contracts WHERE id = $1 FOR UPDATE`,
@@ -196,6 +235,14 @@ export async function acceptContract(contractId: string, tenantId: string, invit
       throw AppError.conflict('Contract already has a tenant.');
     }
 
+    // Tenant must have a Solana wallet to lock the deposit on-chain
+    const tenantResult = await client.query<DbUser>(
+      `SELECT solana_pubkey FROM users WHERE id = $1`,
+      [tenantId],
+    );
+    const tenantPubkey = tenantResult.rows[0]?.solana_pubkey;
+    if (!tenantPubkey) throw AppError.conflict('Tenant must register a Solana wallet before accepting a contract.');
+
     validateTransition(contractRow.status as Contract['status'], 'accepted', 'tenant');
 
     const updated = await client.query<DbContract>(
@@ -209,8 +256,11 @@ export async function acceptContract(contractId: string, tenantId: string, invit
     await logAuditEvent(contractId, 'CONTRACT_ACCEPTED', tenantId, 'tenant', {}, client);
     await logAuditEvent(contractId, 'DEPOSIT_LOCKED', tenantId, 'tenant', {}, client);
 
+    // Build unsigned lock_deposit transaction for tenant to sign on their device
+    const { serialized_tx } = await getSolanaService().buildLockDepositTx(contractId, tenantPubkey);
+
     const roomRows = await fetchRooms(contractId, client);
-    return toContract(updatedRow, roomRows);
+    return { contract: toContract(updatedRow, roomRows), solana_lock_deposit_tx: serialized_tx };
   });
 }
 

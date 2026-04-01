@@ -8,9 +8,14 @@ const EnvSchema = z.object({
   SUPABASE_URL: z.string().url('SUPABASE_URL must be a valid URL'),
   SUPABASE_SERVICE_KEY: z.string().min(1, 'SUPABASE_SERVICE_KEY is required'),
   SUPABASE_ANON_KEY: z.string().min(1, 'SUPABASE_ANON_KEY is required'),
-  MOCK_AUTH: z.string().default('false').transform(v => v === 'true'),
-  MOCK_LLM: z.string().default('false').transform(v => v === 'true'),
-  SOLANA_PROGRAM_ID: z.string().optional(),
+  MOCK_AUTH: z.coerce.boolean().default(false),
+  MOCK_LLM: z.coerce.boolean().default(false),
+  // Blockchain — mandatory
+  SOLANA_PROGRAM_ID: z.string().min(1, 'SOLANA_PROGRAM_ID is required'),
+  SOLANA_AUTHORITY_KEYPAIR: z.string().min(1, 'SOLANA_AUTHORITY_KEYPAIR is required'),
+  SOLANA_RPC_URL: z.string().url().default('https://api.devnet.solana.com'),
+  PLATFORM_SOLANA_PUBKEY: z.string().min(32, 'PLATFORM_SOLANA_PUBKEY is required (base58 Solana address)'),
+  EUR_SOL_RATE: z.coerce.number().positive().default(0.01),
   // Required only when MOCK_AUTH=false
   FIREBASE_PROJECT_ID: z.string().optional(),
   FIREBASE_PRIVATE_KEY: z.string().optional(),

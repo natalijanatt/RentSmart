@@ -112,6 +112,81 @@ pub mod rentsmart {
         Ok(())
     }
 
+    /// Pay monthly rent on-chain.
+    /// The tenant signs this transaction on their mobile device (server builds it unsigned).
+    /// Called when the tenant initiates a monthly rent payment (POST /contracts/:id/rent/pay).
+    ///
+    /// Fee model (both deducted from the rent amount):
+    ///   - 0.5% platform fee charged to the tenant  (added on top of rent)
+    ///   - 0.5% platform fee charged to the landlord (deducted from what they receive)
+    ///   Total platform fee = 1% of rent; landlord net = 99% of rent
+    ///
+    /// # Arguments
+    /// * `rent_lamports` - Agreed monthly rent amount in lamports (before any fees)
+    pub fn pay_rent(ctx: Context<PayRent>, rent_lamports: u64) -> Result<()> {
+        require!(
+            ctx.accounts.agreement.state == AgreementState::CheckinRecorded,
+            RentSmartError::InvalidState
+        );
+
+        const PLATFORM_FEE_BPS: u64 = 50; // 0.5% = 50 basis points
+        const BPS_DIVISOR: u64 = 10_000;
+
+        // 0.5% added on top of rent — paid by tenant to platform
+        let fee_from_tenant = rent_lamports
+            .checked_mul(PLATFORM_FEE_BPS)
+            .ok_or(RentSmartError::Overflow)?
+            .checked_div(BPS_DIVISOR)
+            .ok_or(RentSmartError::Overflow)?;
+
+        // 0.5% deducted from rent — paid by landlord to platform
+        let fee_from_landlord = rent_lamports
+            .checked_mul(PLATFORM_FEE_BPS)
+            .ok_or(RentSmartError::Overflow)?
+            .checked_div(BPS_DIVISOR)
+            .ok_or(RentSmartError::Overflow)?;
+
+        // Landlord receives rent minus their platform fee share
+        let landlord_amount = rent_lamports
+            .checked_sub(fee_from_landlord)
+            .ok_or(RentSmartError::Overflow)?;
+
+        // Platform receives both fee contributions
+        let platform_fee = fee_from_tenant
+            .checked_add(fee_from_landlord)
+            .ok_or(RentSmartError::Overflow)?;
+
+        // Transfer landlord_amount: tenant → landlord
+        anchor_lang::solana_program::program::invoke(
+            &anchor_lang::solana_program::system_instruction::transfer(
+                &ctx.accounts.tenant.key(),
+                &ctx.accounts.landlord.key(),
+                landlord_amount,
+            ),
+            &[
+                ctx.accounts.tenant.to_account_info(),
+                ctx.accounts.landlord.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+        )?;
+
+        // Transfer platform_fee: tenant → platform  (covers both sides' 0.5%)
+        anchor_lang::solana_program::program::invoke(
+            &anchor_lang::solana_program::system_instruction::transfer(
+                &ctx.accounts.tenant.key(),
+                &ctx.accounts.platform.key(),
+                platform_fee,
+            ),
+            &[
+                ctx.accounts.tenant.to_account_info(),
+                ctx.accounts.platform.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+        )?;
+
+        Ok(())
+    }
+
     /// Execute the settlement: release escrowed SOL to tenant and landlord.
     /// Amounts come from the deterministic rule engine on the server.
     /// Called by the backend authority on finalization (POST /contracts/:id/finalize).
@@ -238,6 +313,32 @@ pub struct RecordCheckout<'info> {
 }
 
 #[derive(Accounts)]
+pub struct PayRent<'info> {
+    /// Agreement PDA — read-only, used to verify state and constrain landlord/tenant accounts
+    #[account(
+        seeds = [b"rental", agreement.contract_id.as_ref()],
+        bump = agreement.bump,
+        constraint = agreement.tenant == tenant.key() @ RentSmartError::Unauthorized,
+        constraint = agreement.landlord == landlord.key() @ RentSmartError::Unauthorized
+    )]
+    pub agreement: Account<'info, RentalAgreement>,
+
+    /// Tenant must sign — they pay rent + their share of platform fee from their wallet
+    #[account(mut)]
+    pub tenant: Signer<'info>,
+
+    /// CHECK: landlord wallet — receives rent minus their 0.5% platform fee share
+    #[account(mut)]
+    pub landlord: AccountInfo<'info>,
+
+    /// CHECK: platform fee wallet — receives 1% total (0.5% from each side)
+    #[account(mut)]
+    pub platform: AccountInfo<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct ExecuteSettlement<'info> {
     #[account(
         mut,
@@ -303,4 +404,7 @@ pub enum RentSmartError {
 
     #[msg("Unauthorized signer for this instruction")]
     Unauthorized,
+
+    #[msg("Arithmetic overflow during fee calculation")]
+    Overflow,
 }
