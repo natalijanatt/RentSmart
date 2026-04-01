@@ -2,6 +2,7 @@ import express, { type Request, type Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
+import swaggerUi from 'swagger-ui-express';
 import { pool } from './shared/db/index.js';
 import { errorHandler } from './shared/middleware/errorHandler.js';
 import { authRouter } from './modules/auth/auth.routes.js';
@@ -10,14 +11,19 @@ import { inspectionsRouter } from './modules/inspections/inspections.routes.js';
 import { analysisRouter } from './modules/analysis/analysis.routes.js';
 import { runAnalysis } from './modules/analysis/analysis.service.js';
 import { auditRouter } from './modules/audit/audit.routes.js';
+import { swaggerSpec } from './swagger.js';
 
 export const app = express();
 
 // ── Middleware ────────────────────────────────────────────────────────────────
-app.use(helmet());
+app.use('/docs', helmet({ contentSecurityPolicy: false }));
+app.use(/^(?!\/docs).*$/, helmet());
 app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
+
+// ── Swagger UI ────────────────────────────────────────────────────────────────
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', async (_req: Request, res: Response) => {
