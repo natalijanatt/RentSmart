@@ -3,13 +3,12 @@ import { Program } from '@coral-xyz/anchor';
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { expect } from 'chai';
 import crypto from 'crypto';
-import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import path from 'node:path';
+import BN from 'bn.js';
 
-// require() is not available in ESM scope (Node 24 loads .ts natively as ESM)
-const require = createRequire(import.meta.url);
-// BN and IDL must come from CJS require — anchor.BN is not in the ESM namespace
-const { BN } = require('@coral-xyz/anchor') as typeof anchor;
-const IDL = require('../target/idl/rentsmart.json');
+const idlPath = path.resolve(process.cwd(), 'target/idl/rentsmart.json');
+const IDL = JSON.parse(fs.readFileSync(idlPath, 'utf8'));
 
 describe('rentsmart', () => {
   const provider = anchor.AnchorProvider.env();
@@ -17,11 +16,13 @@ describe('rentsmart', () => {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const program = new Program(IDL, provider) as Program<any>;
+  const programMethods = (program as any).methods;
 
   // Test fixtures
   const authority = provider.wallet as anchor.Wallet;
   const tenant = Keypair.generate();
   const landlord = Keypair.generate();
+  const platform = Keypair.generate();
 
   const CONTRACT_ID = '550e8400-e29b-41d4-a716-446655440000'; // 36-char UUID
   // Solana max seed length is 32 bytes — store/use first 32 bytes of the UUID string
@@ -51,17 +52,18 @@ describe('rentsmart', () => {
   });
 
   it('initialize — creates PDA with correct data', async () => {
-    await program.methods
+    await programMethods
       .initialize(contractIdBytes, contractHash, depositLamports)
       .accounts({
         agreement: agreementPDA,
         authority: authority.publicKey,
         landlord: landlord.publicKey,
+        platform: platform.publicKey,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
 
-    const account = await program.account.rentalAgreement.fetch(agreementPDA);
+    const account = await (program.account as any).rentalAgreement.fetch(agreementPDA);
 
     expect(Buffer.from(account.contractId as number[]).toString('utf8')).to.equal(CONTRACT_ID.slice(0, 32));
     expect(Buffer.from(account.contractHash as number[]).toString('hex')).to.equal(
@@ -69,6 +71,7 @@ describe('rentsmart', () => {
     );
     expect((account.depositLamports as BN).toNumber()).to.equal(depositLamports.toNumber());
     expect(account.landlord.toBase58()).to.equal(landlord.publicKey.toBase58());
+    expect(account.platformWallet.toBase58()).to.equal(platform.publicKey.toBase58());
     expect('created' in account.state).to.be.true;
     expect((account.createdAt as BN).toNumber()).to.be.greaterThan(0);
     expect(account.bump).to.equal(bump);
@@ -77,7 +80,7 @@ describe('rentsmart', () => {
   it('lock_deposit — tenant transfers SOL into PDA escrow', async () => {
     const pdaBalanceBefore = await provider.connection.getBalance(agreementPDA);
 
-    await program.methods
+    await programMethods
       .lockDeposit()
       .accounts({
         agreement: agreementPDA,
@@ -87,7 +90,7 @@ describe('rentsmart', () => {
       .signers([tenant])
       .rpc();
 
-    const account = await program.account.rentalAgreement.fetch(agreementPDA);
+    const account = await (program.account as any).rentalAgreement.fetch(agreementPDA);
     expect('depositLocked' in account.state).to.be.true;
     expect(account.tenant.toBase58()).to.equal(tenant.publicKey.toBase58());
 
@@ -97,7 +100,7 @@ describe('rentsmart', () => {
 
   it('lock_deposit — rejects if called twice (wrong state)', async () => {
     try {
-      await program.methods
+      await programMethods
         .lockDeposit()
         .accounts({
           agreement: agreementPDA,
@@ -117,7 +120,7 @@ describe('rentsmart', () => {
       crypto.createHash('sha256').update('checkin_img_hash_1checkin_img_hash_2').digest(),
     );
 
-    await program.methods
+    await programMethods
       .recordCheckin(checkinHash)
       .accounts({
         agreement: agreementPDA,
@@ -125,7 +128,7 @@ describe('rentsmart', () => {
       })
       .rpc();
 
-    const account = await program.account.rentalAgreement.fetch(agreementPDA);
+    const account = await (program.account as any).rentalAgreement.fetch(agreementPDA);
     expect('checkinRecorded' in account.state).to.be.true;
     expect(Buffer.from(account.checkinHash as number[]).toString('hex')).to.equal(
       Buffer.from(checkinHash).toString('hex'),
@@ -137,7 +140,7 @@ describe('rentsmart', () => {
       crypto.createHash('sha256').update('checkout_img_hash_1checkout_img_hash_2').digest(),
     );
 
-    await program.methods
+    await programMethods
       .recordCheckout(checkoutHash)
       .accounts({
         agreement: agreementPDA,
@@ -145,7 +148,7 @@ describe('rentsmart', () => {
       })
       .rpc();
 
-    const account = await program.account.rentalAgreement.fetch(agreementPDA);
+    const account = await (program.account as any).rentalAgreement.fetch(agreementPDA);
     expect('checkoutRecorded' in account.state).to.be.true;
   });
 
@@ -159,7 +162,7 @@ describe('rentsmart', () => {
     const tenantBalanceBefore = await provider.connection.getBalance(tenant.publicKey);
     const landlordBalanceBefore = await provider.connection.getBalance(landlord.publicKey);
 
-    await program.methods
+    await programMethods
       .executeSettlement(settlementHash, tenantAmount, landlordAmount)
       .accounts({
         agreement: agreementPDA,
@@ -169,7 +172,7 @@ describe('rentsmart', () => {
       })
       .rpc();
 
-    const account = await program.account.rentalAgreement.fetch(agreementPDA);
+    const account = await (program.account as any).rentalAgreement.fetch(agreementPDA);
     expect('settled' in account.state).to.be.true;
 
     const tenantBalanceAfter = await provider.connection.getBalance(tenant.publicKey);
@@ -188,25 +191,26 @@ describe('rentsmart', () => {
     );
 
     // Initialize and lock deposit on alt contract
-    await program.methods
+    await programMethods
       .initialize(Array.from(Buffer.from(altId).subarray(0, 32)), contractHash, depositLamports)
       .accounts({
         agreement: altPDA,
         authority: authority.publicKey,
         landlord: landlord.publicKey,
+        platform: platform.publicKey,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
-    await program.methods
+    await programMethods
       .lockDeposit()
       .accounts({ agreement: altPDA, tenant: tenant.publicKey, systemProgram: SystemProgram.programId })
       .signers([tenant])
       .rpc();
-    await program.methods
+    await programMethods
       .recordCheckin(Array.from(Buffer.alloc(32)))
       .accounts({ agreement: altPDA, authority: authority.publicKey })
       .rpc();
-    await program.methods
+    await programMethods
       .recordCheckout(Array.from(Buffer.alloc(32)))
       .accounts({ agreement: altPDA, authority: authority.publicKey })
       .rpc();
@@ -216,7 +220,7 @@ describe('rentsmart', () => {
     const wrongLandlord = new BN(100); // 200 ≠ depositLamports
 
     try {
-      await program.methods
+      await programMethods
         .executeSettlement(Array.from(Buffer.alloc(32)), wrongTenant, wrongLandlord)
         .accounts({
           agreement: altPDA,

@@ -254,7 +254,7 @@ export async function acceptContract(
     if (!updatedRow) throw AppError.internal('Failed to update contract.');
 
     await logAuditEvent(contractId, 'CONTRACT_ACCEPTED', tenantId, 'tenant', {}, client);
-    await logAuditEvent(contractId, 'DEPOSIT_LOCKED', tenantId, 'tenant', {}, client);
+    await logAuditEvent(contractId, 'DEPOSIT_LOCK_TX_BUILT', tenantId, 'tenant', {}, client);
 
     // Build unsigned lock_deposit transaction for tenant to sign on their device
     const { serialized_tx } = await getSolanaService().buildLockDepositTx(contractId, tenantPubkey);

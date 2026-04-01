@@ -11,6 +11,7 @@ const IDL = require('../../target/idl/rentsmart.json') as Record<string, unknown
 export class SolanaService implements ISolanaService {
   private readonly connection: Connection;
   private readonly authority: Keypair;
+  private readonly platformWallet: PublicKey;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly program: Program<any>;
   private readonly programId: PublicKey;
@@ -19,12 +20,16 @@ export class SolanaService implements ISolanaService {
     const rpcUrl = process.env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com';
     const programId = process.env.SOLANA_PROGRAM_ID;
     const rawKeypair = process.env.SOLANA_AUTHORITY_KEYPAIR;
+    const platformPubkey = process.env.PLATFORM_SOLANA_PUBKEY;
 
     if (!programId) {
       throw new Error('SOLANA_PROGRAM_ID env variable is required');
     }
     if (!rawKeypair) {
       throw new Error('SOLANA_AUTHORITY_KEYPAIR env variable is required');
+    }
+    if (!platformPubkey) {
+      throw new Error('PLATFORM_SOLANA_PUBKEY env variable is required');
     }
 
     const keypairBytes = JSON.parse(rawKeypair) as number[];
@@ -34,6 +39,7 @@ export class SolanaService implements ISolanaService {
 
     this.programId = new PublicKey(programId);
     this.authority = Keypair.fromSecretKey(Uint8Array.from(keypairBytes));
+    this.platformWallet = new PublicKey(platformPubkey);
     this.connection = new Connection(rpcUrl, 'confirmed');
 
     const wallet = new Wallet(this.authority);
@@ -64,12 +70,15 @@ export class SolanaService implements ISolanaService {
     const contractIdBytes = Array.from(Buffer.from(contractId).subarray(0, 32));
     const contractHashArray = Array.from(contractHash.subarray(0, 32));
 
-    const txSignature = await this.program.methods
+    const programMethods = (this.program as any).methods;
+
+    const txSignature = await programMethods
       .initialize(contractIdBytes, contractHashArray, new BN(depositLamports))
       .accounts({
         agreement: pda,
         authority: this.authority.publicKey,
         landlord: new PublicKey(landlordPubkey),
+        platform: this.platformWallet,
         systemProgram: SystemProgram.programId,
       })
       .signers([this.authority])
@@ -92,7 +101,9 @@ export class SolanaService implements ISolanaService {
     );
 
     // Build the transaction without signing — tenant will sign on their device
-    const tx = await this.program.methods
+    const programMethods = (this.program as any).methods;
+
+    const tx = await programMethods
       .lockDeposit()
       .accounts({
         agreement: pda,
@@ -122,7 +133,9 @@ export class SolanaService implements ISolanaService {
 
     const imageHashArray = Array.from(imageHash.subarray(0, 32));
 
-    const txSignature = await this.program.methods
+    const programMethods = (this.program as any).methods;
+
+    const txSignature = await programMethods
       .recordCheckin(imageHashArray)
       .accounts({
         agreement: pda,
@@ -146,7 +159,9 @@ export class SolanaService implements ISolanaService {
 
     const imageHashArray = Array.from(imageHash.subarray(0, 32));
 
-    const txSignature = await this.program.methods
+    const programMethods = (this.program as any).methods;
+
+    const txSignature = await programMethods
       .recordCheckout(imageHashArray)
       .accounts({
         agreement: pda,
@@ -175,7 +190,9 @@ export class SolanaService implements ISolanaService {
     const perMonthTotal = rentLamports + feePerMonth;
     const amountLamports = perMonthTotal * months;
 
-    const tx = await this.program.methods
+    const programMethods = (this.program as any).methods;
+
+    const tx = await programMethods
       .topUpRent(new BN(amountLamports))
       .accounts({
         agreement: pda,
@@ -213,7 +230,9 @@ export class SolanaService implements ISolanaService {
     const landlordAmount = rentLamports - feePerSide;
     const platformFee = feePerSide * 2;
 
-    const txSignature = await this.program.methods
+    const programMethods = (this.program as any).methods;
+
+    const txSignature = await programMethods
       .releaseMonthlyRent(new BN(rentLamports))
       .accounts({
         agreement: pda,
@@ -247,7 +266,9 @@ export class SolanaService implements ISolanaService {
 
     const settlementHashArray = Array.from(settlementHash.subarray(0, 32));
 
-    const txSignature = await this.program.methods
+    const programMethods = (this.program as any).methods;
+
+    const txSignature = await programMethods
       .executeSettlement(
         settlementHashArray,
         new BN(tenantAmount),
@@ -285,6 +306,8 @@ export class SolanaService implements ISolanaService {
         deposit_lamports: (account.depositLamports as BN).toNumber(),
         prepaid_rent_lamports: (account.prepaidRentLamports as BN).toNumber(),
         landlord: account.landlord.toBase58(),
+        authority: account.authority.toBase58(),
+        platform_wallet: account.platformWallet.toBase58(),
         tenant: account.tenant.toBase58(),
         state: getStateLabel(account.state),
         checkin_hash: Buffer.from(account.checkinHash as number[]).toString('hex'),

@@ -114,6 +114,8 @@ export class MockSolanaService implements ISolanaService {
       deposit_lamports: 0,
       prepaid_rent_lamports: 0,
       landlord: '11111111111111111111111111111111',
+      authority: '11111111111111111111111111111111',
+      platform_wallet: '11111111111111111111111111111111',
       tenant: '11111111111111111111111111111111',
       state: 'Created',
       checkin_hash: '0'.repeat(64),

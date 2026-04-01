@@ -101,8 +101,8 @@ export async function buildTopUpRentTx(
   );
   if (!contractRow) throw AppError.notFound('Contract not found.');
   if (contractRow.tenant_id !== tenantId) throw AppError.forbidden('Only the tenant can top up the rent escrow.');
-  if (contractRow.status !== 'active' && contractRow.status !== 'accepted') {
-    throw AppError.conflict(`Rent top-up is only allowed on accepted or active contracts (current status: ${contractRow.status}).`);
+  if (contractRow.status !== 'active') {
+    throw AppError.conflict(`Rent top-up is only allowed on active contracts (current status: ${contractRow.status}).`);
   }
 
   const tenantRes = await queryOne<DbUser>(`SELECT solana_pubkey FROM users WHERE id = $1`, [tenantId]);
@@ -142,8 +142,8 @@ export async function confirmTopUp(
     const c = contractRow.rows[0];
     if (!c) throw AppError.notFound('Contract not found.');
     if (c.tenant_id !== tenantId) throw AppError.forbidden('Only the tenant can confirm a rent top-up.');
-    if (c.status !== 'active' && c.status !== 'accepted') {
-      throw AppError.conflict(`Rent top-up is only allowed on accepted or active contracts (current status: ${c.status}).`);
+    if (c.status !== 'active') {
+      throw AppError.conflict(`Rent top-up is only allowed on active contracts (current status: ${c.status}).`);
     }
 
     // Prevent duplicate tx_signature submissions
@@ -215,37 +215,49 @@ export async function releaseMonthlyRentForAllActive(month: number, year: number
 
   for (const contract of activeContracts) {
     try {
-      // Skip if already released for this period
-      const existing = await queryOne<{ id: string }>(
-        `SELECT id FROM rent_releases WHERE contract_id = $1 AND period_month = $2 AND period_year = $3`,
-        [contract.id, month, year],
-      );
-      if (existing) {
-        console.log(`[RentRelease] Already released for ${contract.id} period ${month}/${year} — skipping`);
-        continue;
-      }
-
-      const landlordRes = await queryOne<DbUser>(
-        `SELECT solana_pubkey FROM users WHERE id = $1`,
-        [contract.landlord_id],
-      );
-      const landlordPubkey = landlordRes?.solana_pubkey;
-      if (!landlordPubkey) {
-        console.warn(`[RentRelease] Landlord has no Solana wallet for contract ${contract.id} — skipping`);
-        continue;
-      }
-
-      const rentAmountEur = parseFloat(contract.rent_monthly_eur);
-      const rentLamports = solana.eurToLamports(rentAmountEur);
-
-      const result = await solana.releaseMonthlyRent(
-        contract.id,
-        rentLamports,
-        landlordPubkey,
-        env.PLATFORM_SOLANA_PUBKEY,
-      );
+      let releasedTxSignature: string | null = null;
 
       await withTransaction(async (client) => {
+        // Prevent cross-instance double-release attempts for the same contract/month/year.
+        const lockResult = await client.query<{ acquired: boolean }>(
+          `SELECT pg_try_advisory_xact_lock(hashtext($1), $2) AS acquired`,
+          [contract.id, (year * 100) + month],
+        );
+        if (!lockResult.rows[0]?.acquired) {
+          console.log(`[RentRelease] Lock busy for ${contract.id} period ${month}/${year} — skipping`);
+          return;
+        }
+
+        const existing = await client.query<{ id: string }>(
+          `SELECT id FROM rent_releases WHERE contract_id = $1 AND period_month = $2 AND period_year = $3`,
+          [contract.id, month, year],
+        );
+        if (existing.rows.length > 0) {
+          console.log(`[RentRelease] Already released for ${contract.id} period ${month}/${year} — skipping`);
+          return;
+        }
+
+        const landlordRes = await client.query<DbUser>(
+          `SELECT solana_pubkey FROM users WHERE id = $1`,
+          [contract.landlord_id],
+        );
+        const landlordPubkey = landlordRes.rows[0]?.solana_pubkey;
+        if (!landlordPubkey) {
+          console.warn(`[RentRelease] Landlord has no Solana wallet for contract ${contract.id} — skipping`);
+          return;
+        }
+
+        const rentAmountEur = parseFloat(contract.rent_monthly_eur);
+        const rentLamports = solana.eurToLamports(rentAmountEur);
+
+        const result = await solana.releaseMonthlyRent(
+          contract.id,
+          rentLamports,
+          landlordPubkey,
+          env.PLATFORM_SOLANA_PUBKEY,
+        );
+        releasedTxSignature = result.tx_signature;
+
         await client.query(
           `INSERT INTO rent_releases
              (contract_id, rent_amount_eur, rent_lamports, landlord_amount_lamports,
@@ -281,7 +293,9 @@ export async function releaseMonthlyRentForAllActive(month: number, year: number
         );
       });
 
-      console.log(`[RentRelease] Released rent for contract ${contract.id} period ${month}/${year}: tx=${result.tx_signature}`);
+      if (releasedTxSignature) {
+        console.log(`[RentRelease] Released rent for contract ${contract.id} period ${month}/${year}: tx=${releasedTxSignature}`);
+      }
     } catch (err) {
       // Log and continue — one failed release should not block others
       console.error(`[RentRelease] Failed for contract ${contract.id} period ${month}/${year}:`, err);

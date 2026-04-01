@@ -24,6 +24,8 @@ export interface SolanaAgreement {
   deposit_lamports: number;
   prepaid_rent_lamports: number;  // current pre-paid rent escrow balance
   landlord: string;               // base58 pubkey
+  authority: string;              // backend authority pubkey allowed to run privileged ops
+  platform_wallet: string;        // platform fee wallet constrained on release instruction
   tenant: string;                 // base58 pubkey
   state: 'Created' | 'DepositLocked' | 'CheckinRecorded' | 'CheckoutRecorded' | 'Settled';
   checkin_hash: string;           // hex string

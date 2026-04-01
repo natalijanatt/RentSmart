@@ -1,7 +1,8 @@
--- RentSmart — Migration 002: Rent escrow tracking
--- Tracks tenant top-ups into the rent escrow PDA and monthly releases to the landlord.
+-- RentSmart — Migration 002: Rent escrow top-ups and releases
+-- Introduces rent_top_ups and rent_releases tables to track tenant escrow top-ups and monthly releases.
 
 -- Extend audit event enum
+ALTER TYPE audit_event_type ADD VALUE IF NOT EXISTS 'DEPOSIT_LOCK_TX_BUILT';
 ALTER TYPE audit_event_type ADD VALUE IF NOT EXISTS 'RENT_TOPPED_UP';
 ALTER TYPE audit_event_type ADD VALUE IF NOT EXISTS 'RENT_RELEASED';
 

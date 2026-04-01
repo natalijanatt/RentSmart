@@ -31,6 +31,8 @@ pub mod rentsmart {
         agreement.deposit_lamports = deposit_lamports;
         agreement.prepaid_rent_lamports = 0;
         agreement.landlord = ctx.accounts.landlord.key();
+        agreement.authority = ctx.accounts.authority.key();
+        agreement.platform_wallet = ctx.accounts.platform.key();
         agreement.tenant = Pubkey::default();
         agreement.state = AgreementState::Created;
         agreement.checkin_hash = [0u8; 32];
@@ -263,6 +265,9 @@ pub struct Initialize<'info> {
     /// CHECK: landlord's Solana wallet — stored for reference, not a signer here
     pub landlord: AccountInfo<'info>,
 
+    /// CHECK: platform fee wallet — stored for later constraint checks
+    pub platform: AccountInfo<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -304,7 +309,9 @@ pub struct ReleaseMonthlyRent<'info> {
         mut,
         seeds = [b"rental", agreement.contract_id.as_ref()],
         bump = agreement.bump,
-        constraint = agreement.landlord == landlord.key() @ RentSmartError::Unauthorized
+        constraint = agreement.landlord == landlord.key() @ RentSmartError::Unauthorized,
+        constraint = agreement.authority == authority.key() @ RentSmartError::Unauthorized,
+        constraint = agreement.platform_wallet == platform.key() @ RentSmartError::Unauthorized
     )]
     pub agreement: Account<'info, RentalAgreement>,
 
@@ -325,7 +332,8 @@ pub struct RecordCheckin<'info> {
     #[account(
         mut,
         seeds = [b"rental", agreement.contract_id.as_ref()],
-        bump = agreement.bump
+        bump = agreement.bump,
+        constraint = agreement.authority == authority.key() @ RentSmartError::Unauthorized
     )]
     pub agreement: Account<'info, RentalAgreement>,
 
@@ -337,7 +345,8 @@ pub struct RecordCheckout<'info> {
     #[account(
         mut,
         seeds = [b"rental", agreement.contract_id.as_ref()],
-        bump = agreement.bump
+        bump = agreement.bump,
+        constraint = agreement.authority == authority.key() @ RentSmartError::Unauthorized
     )]
     pub agreement: Account<'info, RentalAgreement>,
 
@@ -349,7 +358,8 @@ pub struct ExecuteSettlement<'info> {
     #[account(
         mut,
         seeds = [b"rental", agreement.contract_id.as_ref()],
-        bump = agreement.bump
+        bump = agreement.bump,
+        constraint = agreement.authority == authority.key() @ RentSmartError::Unauthorized
     )]
     pub agreement: Account<'info, RentalAgreement>,
 
@@ -373,6 +383,8 @@ pub struct RentalAgreement {
     pub deposit_lamports: u64,            // Security deposit locked in this PDA
     pub prepaid_rent_lamports: u64,       // Pre-paid rent balance contributed by tenant
     pub landlord: Pubkey,                 // Landlord's Solana wallet
+    pub authority: Pubkey,                // Backend authority allowed to run privileged ops
+    pub platform_wallet: Pubkey,          // Platform fee wallet for monthly releases
     pub tenant: Pubkey,                   // Tenant's Solana wallet (set on lock_deposit)
     pub state: AgreementState,            // Current lifecycle state (1 byte enum)
     pub checkin_hash: [u8; 32],           // SHA-256 of check-in image hashes
@@ -384,10 +396,11 @@ pub struct RentalAgreement {
 
 impl RentalAgreement {
     // discriminator(8) + contract_id(32) + contract_hash(32) + deposit_lamports(8)
-    // + prepaid_rent_lamports(8) + landlord(32) + tenant(32) + state(1)
+    // + prepaid_rent_lamports(8) + landlord(32) + authority(32) + platform_wallet(32)
+    // + tenant(32) + state(1)
     // + checkin_hash(32) + checkout_hash(32) + settlement_hash(32)
-    // + created_at(8) + bump(1) + padding(4)
-    pub const SIZE: usize = 8 + 32 + 32 + 8 + 8 + 32 + 32 + 1 + 32 + 32 + 32 + 8 + 1 + 4;
+    // + created_at(8) + bump(1) + padding(6)
+    pub const SIZE: usize = 8 + 32 + 32 + 8 + 8 + 32 + 32 + 32 + 32 + 1 + 32 + 32 + 32 + 8 + 1 + 6;
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]

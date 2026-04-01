@@ -384,7 +384,7 @@ export async function approveInspection(
 ): Promise<Contract> {
   const cfg = INSPECTION_CONFIG[type];
 
-  return withTransaction(async (client) => {
+  const { combinedImageHash, signerPubkey } = await withTransaction(async (client) => {
     const result = await client.query<DbContract>(
       `SELECT * FROM contracts WHERE id = $1 FOR UPDATE`,
       [contractId],
@@ -401,7 +401,7 @@ export async function approveInspection(
       [contractId, type],
     );
     const solana = getSolanaService();
-    const combinedImageHash = solana.hashImages(imageRows.rows.map((r) => r.image_hash));
+    const combinedImageHash = solana.hashImages(imageRows.rows.map((r: { image_hash: string }) => r.image_hash));
 
     if (type === 'checkin') {
       // checkin is approved by tenant — record with landlord pubkey for reference
@@ -409,23 +409,40 @@ export async function approveInspection(
         `SELECT solana_pubkey FROM users WHERE id = $1`,
         [c.landlord_id],
       );
-      await solana.recordCheckin(
-        contractId,
+      return {
         combinedImageHash,
-        landlordRow.rows[0]?.solana_pubkey ?? 'unknown',
-      );
+        signerPubkey: landlordRow.rows[0]?.solana_pubkey ?? 'unknown',
+      };
     } else {
       // checkout is approved by landlord — record with tenant pubkey for reference
       const tenantRow = await client.query<{ solana_pubkey: string | null }>(
         `SELECT solana_pubkey FROM users WHERE id = $1`,
         [c.tenant_id!],
       );
-      await solana.recordCheckout(
-        contractId,
+      return {
         combinedImageHash,
-        tenantRow.rows[0]?.solana_pubkey ?? 'unknown',
-      );
+        signerPubkey: tenantRow.rows[0]?.solana_pubkey ?? 'unknown',
+      };
     }
+  });
+
+  const solana = getSolanaService();
+  if (type === 'checkin') {
+    await solana.recordCheckin(contractId, combinedImageHash, signerPubkey);
+  } else {
+    await solana.recordCheckout(contractId, combinedImageHash, signerPubkey);
+  }
+
+  return withTransaction(async (client) => {
+    const result = await client.query<DbContract>(
+      `SELECT * FROM contracts WHERE id = $1 FOR UPDATE`,
+      [contractId],
+    );
+    const c = result.rows[0];
+    if (!c) throw AppError.notFound('Contract not found.');
+
+    assertActor(actorId, c, cfg.approveActor, `approve ${type === 'checkin' ? 'check-in' : 'check-out'}`);
+    validateTransition(c.status as Contract['status'], cfg.approvedTargetStatus, cfg.approveActor);
 
     const updated = await client.query<DbContract>(
       `UPDATE contracts SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,

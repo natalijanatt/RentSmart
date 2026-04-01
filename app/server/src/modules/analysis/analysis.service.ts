@@ -447,7 +447,9 @@ export async function approveSettlement(
       if (!landlordPubkey) throw AppError.conflict('Landlord must have a Solana wallet for settlement.');
 
       const solana = getSolanaService();
-      const depositLamports = solana.eurToLamports(parseFloat(finalized.deposit_amount_eur));
+      const agreement = await solana.getAgreement(contractId);
+      if (!agreement) throw AppError.conflict('On-chain agreement was not found for settlement execution.');
+      const depositLamports = agreement.deposit_lamports;
       const landlordLamports = solana.eurToLamports(parseFloat(finalized.landlord_receives_eur));
       const tenantLamports = depositLamports - landlordLamports;
 
