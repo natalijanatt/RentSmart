@@ -5,20 +5,21 @@ import {
   Text,
   ScrollView,
   SafeAreaView,
-  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
 import { useContractsStore } from '../../store/contractsStore';
 import { contractsService } from '../../services';
-import { Button, InputField, Card, Badge, Divider, ErrorMessage, LoadingOverlay } from '../../components';
+import { Button, InputField, Card, Badge, Divider, ErrorMessage, LoadingOverlay, BlockchainSuccessModal } from '../../components';
 import { Colors, Spacing, Typography } from '../../constants/theme';
+import { Contract } from '@rentsmart/contracts';
 
 export default function NewContractScreen() {
   const { user } = useAuthStore();
   const { addContract } = useContractsStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successContract, setSuccessContract] = useState<Contract | null>(null);
 
   const [formData, setFormData] = useState({
     property_address: '',
@@ -66,8 +67,7 @@ export default function NewContractScreen() {
       });
 
       addContract(response.contract);
-      Alert.alert('Success', 'Contract created! Invite code: ' + response.contract.invite_code);
-      router.push(`/contract/${response.contract.id}`);
+      setSuccessContract(response.contract);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create contract');
     } finally {
@@ -164,6 +164,16 @@ export default function NewContractScreen() {
       </ScrollView>
 
       <LoadingOverlay visible={loading} message="Creating contract..." />
+
+      <BlockchainSuccessModal
+        visible={!!successContract}
+        contract={successContract}
+        onContinue={() => {
+          const id = successContract!.id;
+          setSuccessContract(null);
+          router.push(`/contract/${id}`);
+        }}
+      />
     </SafeAreaView>
   );
 }
