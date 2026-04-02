@@ -2,6 +2,7 @@
 export { Button } from './common/Button';
 export { Card } from './common/Card';
 export { ConfirmModal } from './common/ConfirmModal';
+export { BlockchainSuccessModal } from './common/BlockchainSuccessModal';
 
 // Form components
 export { InputField } from './form/InputField';
