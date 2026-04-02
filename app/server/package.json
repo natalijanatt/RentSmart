@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "npm run build --workspace @rentsmart/blockchain && tsc",
     "start": "node dist/index.js"
   },
   "keywords": [],
@@ -13,6 +13,7 @@
   "description": "",
   "dependencies": {
     "@openrouter/sdk": "^0.10.2",
+    "@rentsmart/blockchain": "workspace:*",
     "@rentsmart/contracts": "file:../packages/contracts",
     "@supabase/supabase-js": "^2.100.1",
     "bcrypt": "^6.0.0",

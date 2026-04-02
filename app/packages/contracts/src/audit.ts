@@ -6,6 +6,7 @@ export const auditEventTypeSchema = z.enum([
   'CONTRACT_CREATED',
   'INVITE_SENT',
   'CONTRACT_ACCEPTED',
+  'DEPOSIT_LOCK_TX_BUILT',
   'DEPOSIT_LOCKED',
   'CHECKIN_STARTED',
   'CHECKIN_IMAGE_CAPTURED',
@@ -27,6 +28,8 @@ export const auditEventTypeSchema = z.enum([
   'DEPOSIT_RELEASED',
   'CONTRACT_HASH_STORED',
   'CONTRACT_CANCELLED',
+  'RENT_TOPPED_UP',
+  'RENT_RELEASED',
 ]);
 
 export const auditEventSchema = z.object({

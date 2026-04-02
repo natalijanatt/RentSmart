@@ -4,6 +4,7 @@ import type { AuditEventType, Contract, ContractStatus, InspectionImage, Inspect
 
 import { withTransaction, query, queryOne } from '../../shared/db/index.js';
 import { supabase, STORAGE_BUCKET } from '../../shared/db/supabase.js';
+import { getSolanaService } from '../../services/solana/instance.js';
 import type { DbContract, DbInspectionImage, DbRoom } from '../../shared/types/index.js';
 import { AppError } from '../../shared/utils/errors.js';
 import { haversineDistance, GPS_MAX_DISTANCE_M } from '../../shared/utils/geo.js';
@@ -382,6 +383,55 @@ export async function approveInspection(
   type: InspectionType,
 ): Promise<Contract> {
   const cfg = INSPECTION_CONFIG[type];
+
+  const { combinedImageHash, signerPubkey } = await withTransaction(async (client) => {
+    const result = await client.query<DbContract>(
+      `SELECT * FROM contracts WHERE id = $1 FOR UPDATE`,
+      [contractId],
+    );
+    const c = result.rows[0];
+    if (!c) throw AppError.notFound('Contract not found.');
+
+    assertActor(actorId, c, cfg.approveActor, `approve ${type === 'checkin' ? 'check-in' : 'check-out'}`);
+    validateTransition(c.status as Contract['status'], cfg.approvedTargetStatus, cfg.approveActor);
+
+    // Record image hash on-chain before updating DB status
+    const imageRows = await client.query<{ image_hash: string }>(
+      `SELECT image_hash FROM inspection_images WHERE contract_id = $1 AND inspection_type = $2`,
+      [contractId, type],
+    );
+    const solana = getSolanaService();
+    const combinedImageHash = solana.hashImages(imageRows.rows.map((r: { image_hash: string }) => r.image_hash));
+
+    if (type === 'checkin') {
+      // checkin is approved by tenant — record with landlord pubkey for reference
+      const landlordRow = await client.query<{ solana_pubkey: string | null }>(
+        `SELECT solana_pubkey FROM users WHERE id = $1`,
+        [c.landlord_id],
+      );
+      return {
+        combinedImageHash,
+        signerPubkey: landlordRow.rows[0]?.solana_pubkey ?? 'unknown',
+      };
+    } else {
+      // checkout is approved by landlord — record with tenant pubkey for reference
+      const tenantRow = await client.query<{ solana_pubkey: string | null }>(
+        `SELECT solana_pubkey FROM users WHERE id = $1`,
+        [c.tenant_id!],
+      );
+      return {
+        combinedImageHash,
+        signerPubkey: tenantRow.rows[0]?.solana_pubkey ?? 'unknown',
+      };
+    }
+  });
+
+  const solana = getSolanaService();
+  if (type === 'checkin') {
+    await solana.recordCheckin(contractId, combinedImageHash, signerPubkey);
+  } else {
+    await solana.recordCheckout(contractId, combinedImageHash, signerPubkey);
+  }
 
   return withTransaction(async (client) => {
     const result = await client.query<DbContract>(
