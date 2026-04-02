@@ -1,13 +1,26 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View, Text, SafeAreaView, ScrollView } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
+import { useContractsStore } from '../../store/contractsStore';
+import { contractsService } from '../../services';
 import { Button, Card, Divider } from '../../components';
 import { Colors, Spacing, Typography } from '../../constants/theme';
 import { getInitials } from '../../utils/formatters';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuthStore();
+  const { contracts, setContracts } = useContractsStore();
+
+  useEffect(() => {
+    if (contracts.length === 0 && user) {
+      contractsService.getContracts().then((res) => setContracts(res.contracts)).catch(() => {});
+    }
+  }, [user]);
+
+  const activeContractsCount = contracts.filter(
+    (c) => c.status !== 'completed' && c.status !== 'cancelled'
+  ).length;
 
   const handleLogout = () => {
     logout();
@@ -41,34 +54,9 @@ export default function ProfileScreen() {
           <Text style={[styles.sectionTitle, Typography.heading4]}>Account Information</Text>
           <Divider />
           <View style={styles.infoRow}>
-            <Text style={[styles.infoLabel, Typography.body]}>User ID</Text>
-            <Text style={[styles.infoValue, Typography.caption]}>
-              {user?.id?.substring(0, 8)}...
-            </Text>
+            <Text style={[styles.infoLabel, Typography.body]}>Active Contracts</Text>
+            <Text style={[styles.infoValue, Typography.body]}>{activeContractsCount}</Text>
           </View>
-          <View style={styles.infoRow}>
-            <Text style={[styles.infoLabel, Typography.body]}>Device ID</Text>
-            <Text style={[styles.infoValue, Typography.caption]}>
-              {user?.device_id?.substring(0, 8)}...
-            </Text>
-          </View>
-          {user?.solana_pubkey && (
-            <View style={styles.infoRow}>
-              <Text style={[styles.infoLabel, Typography.body]}>Solana Wallet</Text>
-              <Text style={[styles.infoValue, Typography.caption]}>
-                {user.solana_pubkey.substring(0, 8)}...
-              </Text>
-            </View>
-          )}
-        </Card>
-
-        {/* Preferences */}
-        <Card style={styles.card}>
-          <Text style={[styles.sectionTitle, Typography.heading4]}>Preferences</Text>
-          <Divider />
-          <Text style={[styles.preferenceHint, Typography.body]}>
-            More settings coming soon
-          </Text>
         </Card>
 
         {/* Logout */}
@@ -144,10 +132,6 @@ const styles = StyleSheet.create({
   infoValue: {
     color: Colors.textSecondary,
     fontSize: 12,
-  },
-  preferenceHint: {
-    color: Colors.textSecondary,
-    paddingVertical: Spacing.sm,
   },
   actions: {
     marginTop: Spacing.xl,

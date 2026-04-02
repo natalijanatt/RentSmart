@@ -60,56 +60,56 @@ export const truncateString = (str: string, length: number): string => {
 
 export const getContractStatusLabel = (status: string): string => {
   const labels: Record<string, string> = {
-    CREATED: 'Kreirano',
-    INVITED: 'Pozvan',
-    ACCEPTED: 'Prihvaćen',
-    ACTIVE: 'Aktivan',
-    PENDING: 'U čekanju',
-    COMPLETED: 'Završen',
-    CANCELLED: 'Otkazan',
-    REJECTED: 'Odbijen',
+    CREATED: 'Created',
+    INVITED: 'Invited',
+    ACCEPTED: 'Accepted',
+    ACTIVE: 'Active',
+    PENDING: 'Pending',
+    COMPLETED: 'Completed',
+    CANCELLED: 'Cancelled',
+    REJECTED: 'Rejected',
   };
   return labels[status] || status;
 };
 
 export const getAuditEventLabel = (eventType: string): string => {
   const labels: Record<string, string> = {
-    CONTRACT_CREATED: 'Ugovor kreiran',
-    CONTRACT_INVITED: 'Poziv poslat',
-    CONTRACT_ACCEPTED: 'Ugovor prihvaćen',
-    DEPOSIT_LOCKED: 'Depozit zakljuchan',
-    CHECKIN_STARTED: 'Ulazak počeo',
-    CHECKIN_COMPLETED: 'Ulazak završen',
-    CHECKOUT_STARTED: 'Izlazak počeo',
-    CHECKOUT_COMPLETED: 'Izlazak završen',
-    ANALYSIS_STARTED: 'Analiza počela',
-    ANALYSIS_COMPLETED: 'Analiza završena',
-    SETTLEMENT_CREATED: 'Poravnanje kreirano',
-    SETTLEMENT_PROPOSED: 'Poravnanje predloženo',
-    SETTLEMENT_APPROVED: 'Poravnanje odobreno',
-    SETTLEMENT_FINALIZED: 'Poravnanje završeno',
-    PAYMENT_INITIATED: 'Plaćanje je inicirano',
-    PAYMENT_COMPLETED: 'Plaćanje je završeno',
-    SETTLEMENT_VIEWED: 'Poravnanje pregledano',
+    CONTRACT_CREATED: 'Contract created',
+    CONTRACT_INVITED: 'Invitation sent',
+    CONTRACT_ACCEPTED: 'Contract accepted',
+    DEPOSIT_LOCKED: 'Deposit locked',
+    CHECKIN_STARTED: 'Check-in started',
+    CHECKIN_COMPLETED: 'Check-in completed',
+    CHECKOUT_STARTED: 'Check-out started',
+    CHECKOUT_COMPLETED: 'Check-out completed',
+    ANALYSIS_STARTED: 'Analysis started',
+    ANALYSIS_COMPLETED: 'Analysis completed',
+    SETTLEMENT_CREATED: 'Settlement created',
+    SETTLEMENT_PROPOSED: 'Settlement proposed',
+    SETTLEMENT_APPROVED: 'Settlement approved',
+    SETTLEMENT_FINALIZED: 'Settlement finalized',
+    PAYMENT_INITIATED: 'Payment initiated',
+    PAYMENT_COMPLETED: 'Payment completed',
+    SETTLEMENT_VIEWED: 'Settlement viewed',
   };
   return labels[eventType] || eventType;
 };
 
 export const getSeverityLabel = (severity: string): string => {
   const labels: Record<string, string> = {
-    MINOR: 'Mala šteta',
-    MEDIUM: 'Srednja šteta',
-    MAJOR: 'Velika šteta',
+    MINOR: 'Minor damage',
+    MEDIUM: 'Medium damage',
+    MAJOR: 'Major damage',
   };
   return labels[severity] || severity;
 };
 
 export const getConditionLabel = (condition: string): string => {
   const labels: Record<string, string> = {
-    EXCELLENT: 'Odličnog stanja',
-    GOOD: 'Dobrog stanja',
-    FAIR: 'Zadovoljavajućeg stanja',
-    POOR: 'Lošeg stanja',
+    EXCELLENT: 'Excellent condition',
+    GOOD: 'Good condition',
+    FAIR: 'Fair condition',
+    POOR: 'Poor condition',
   };
   return labels[condition] || condition;
 };
@@ -144,14 +144,14 @@ export const getConditionColor = (condition: string): string => {
 
 export const getRoomTypeLabel = (roomType: string): string => {
   const labels: Record<string, string> = {
-    dnevna_soba: 'Dnevna soba',
-    spavaca_soba: 'Spavaća soba',
-    kupatilo: 'Kupatilo',
-    kuhinja: 'Kuhinja',
-    kupatilo_prazenje: 'Kupatilo (pražnjenje)',
-    terasa: 'Terasa',
-    balkon: 'Balkon',
-    garaža: 'Garaža',
+    dnevna_soba: 'Living room',
+    spavaca_soba: 'Bedroom',
+    kupatilo: 'Bathroom',
+    kuhinja: 'Kitchen',
+    kupatilo_prazenje: 'Bathroom (drainage)',
+    terasa: 'Terrace',
+    balkon: 'Balcony',
+    garaža: 'Garage',
   };
   return labels[roomType] || roomType;
 };

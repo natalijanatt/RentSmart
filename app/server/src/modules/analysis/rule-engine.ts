@@ -27,7 +27,8 @@ export function computeSettlement(
 ): SettlementComputation {
   const deductions: Deduction[] = [];
   const skippedFindings: SkippedFinding[] = [];
-  let requiresManualReview = false;
+  let hasLowConfidenceFindings = false;
+  let hasHighDeductions = false;
 
   for (const result of analysisResults) {
     const findings = result.findings as Finding[] | null;
@@ -49,7 +50,7 @@ export function computeSettlement(
           description: finding.description,
           reason: `confidence too low (${finding.confidence.toFixed(2)})`,
         });
-        requiresManualReview = true;
+        hasLowConfidenceFindings = true;
         continue;
       }
 
@@ -70,13 +71,22 @@ export function computeSettlement(
 
   const rawTotalPercent = deductions.reduce((sum, d) => sum + d.deduction_percent, 0);
   const clampedTotalPercent = Math.min(rawTotalPercent, 100);
+  const isCapped = rawTotalPercent > 100;
 
-  if (clampedTotalPercent > 50) {
-    requiresManualReview = true;
-  }
+  hasHighDeductions = clampedTotalPercent > 50;
+  const requiresManualReview = hasLowConfidenceFindings || hasHighDeductions;
+
   const totalDeductionEur = (depositAmountEur * clampedTotalPercent) / 100;
   const tenantReceivesEur = Math.max(0, depositAmountEur - totalDeductionEur);
   const landlordReceivesEur = totalDeductionEur;
+
+  // Scale individual deduction_eur values so they sum exactly to totalDeductionEur
+  if (isCapped && deductions.length > 0) {
+    const scaleFactor = clampedTotalPercent / rawTotalPercent;
+    for (const d of deductions) {
+      d.deduction_eur = parseFloat((d.deduction_eur * scaleFactor).toFixed(2));
+    }
+  }
 
   const settlementType: 'automatic' | 'manual_review' = requiresManualReview
     ? 'manual_review'
@@ -87,15 +97,18 @@ export function computeSettlement(
     parts.push('No deductions applied.');
   } else {
     parts.push(`${deductions.length} finding(s) resulted in deductions.`);
-    if (rawTotalPercent > 100) {
+    if (isCapped) {
       parts.push('Total deductions capped at 100% of deposit.');
     }
   }
   if (skippedFindings.length > 0) {
     parts.push(`${skippedFindings.length} finding(s) skipped (wear and tear or low confidence).`);
   }
-  if (requiresManualReview) {
+  if (hasLowConfidenceFindings) {
     parts.push('Manual review required due to low-confidence findings.');
+  }
+  if (hasHighDeductions) {
+    parts.push('Manual review required: total deductions exceed 50% of deposit.');
   }
   parts.push(
     `Tenant receives €${tenantReceivesEur.toFixed(2)}, landlord retains €${landlordReceivesEur.toFixed(2)}.`,

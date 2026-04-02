@@ -33,14 +33,14 @@ export default function TabLayout() {
       <Tabs.Screen
         name="new-contract"
         options={{
-          title: 'Novi ugovor',
+          title: 'New Contract',
           tabBarIcon: ({ color }) => <TabBarIcon name="plus" color={color} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profil',
+          title: 'Profile',
           tabBarIcon: ({ color }) => <TabBarIcon name="user" color={color} />,
         }}
       />
