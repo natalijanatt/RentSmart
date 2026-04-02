@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -21,24 +21,107 @@ import {
   getContractStatusLabel,
 } from '../../utils/formatters';
 
+type ActionIndicator = {
+  type: 'action' | 'waiting';
+  label: string;
+} | null;
+
+function getActionIndicator(contract: any, userId: string): ActionIndicator {
+  const isLandlord = userId === contract.landlord_id;
+  const { status } = contract;
+
+  if (isLandlord) {
+    switch (status) {
+      case 'pending_acceptance':
+        return { type: 'waiting', label: 'Waiting for tenant to accept' };
+      case 'accepted':
+        return { type: 'action', label: 'Start check-in' };
+      case 'checkin_in_progress':
+        return { type: 'action', label: 'Continue check-in' };
+      case 'checkin_pending_approval':
+        return { type: 'waiting', label: 'Waiting for tenant to review check-in' };
+      case 'checkin_rejected':
+        return { type: 'action', label: 'Redo check-in — tenant rejected' };
+      case 'active':
+        return { type: 'waiting', label: 'Waiting for tenant to start check-out' };
+      case 'checkout_in_progress':
+        return { type: 'waiting', label: 'Tenant is doing check-out' };
+      case 'checkout_pending_approval':
+        return { type: 'action', label: 'Review check-out photos' };
+      case 'checkout_rejected':
+        return { type: 'waiting', label: 'Tenant needs to redo check-out' };
+      case 'pending_analysis':
+        return { type: 'waiting', label: 'AI is analyzing images...' };
+      case 'settlement':
+        return { type: 'action', label: 'Approve settlement' };
+      default:
+        return null;
+    }
+  } else {
+    switch (status) {
+      case 'pending_acceptance':
+        return { type: 'action', label: 'Accept contract' };
+      case 'accepted':
+        return { type: 'waiting', label: 'Waiting for landlord to start check-in' };
+      case 'checkin_in_progress':
+        return { type: 'waiting', label: 'Landlord is doing check-in' };
+      case 'checkin_pending_approval':
+        return { type: 'action', label: 'Review check-in photos' };
+      case 'checkin_rejected':
+        return { type: 'waiting', label: 'Landlord is redoing check-in' };
+      case 'active':
+        return { type: 'action', label: 'Start check-out' };
+      case 'checkout_in_progress':
+        return { type: 'action', label: 'Continue check-out' };
+      case 'checkout_pending_approval':
+        return { type: 'waiting', label: 'Waiting for landlord to review check-out' };
+      case 'checkout_rejected':
+        return { type: 'action', label: 'Redo check-out — landlord rejected' };
+      case 'pending_analysis':
+        return { type: 'waiting', label: 'AI is analyzing images...' };
+      case 'settlement':
+        return { type: 'action', label: 'Approve settlement' };
+      default:
+        return null;
+    }
+  }
+}
+
 export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const { user } = useAuthStore();
   const { contracts, isLoading, setContracts, setSelectedContract } = useContractsStore();
+  const isFocused = useRef(false);
+  const isFetching = useRef(false);
 
   const loadContracts = useCallback(async () => {
-    if (!user) return;
+    if (!user || isFetching.current) return;
+    isFetching.current = true;
     try {
       const response = await contractsService.getContracts();
       setContracts(response.contracts);
     } catch (error) {
       console.error('Error loading contracts:', error);
+    } finally {
+      isFetching.current = false;
     }
   }, [user, setContracts]);
 
   useFocusEffect(
     useCallback(() => {
+      isFocused.current = true;
       loadContracts();
+
+      const interval = setInterval(() => {
+        if (isFocused.current) {
+          loadContracts();
+        }
+      }, 1000);
+
+      return () => {
+        isFocused.current = false;
+        clearInterval(interval);
+      };
     }, [loadContracts])
   );
 
@@ -71,7 +154,7 @@ export default function DashboardScreen() {
     contracts.forEach((contract) => {
       if (contract.status === 'completed' || contract.status === 'cancelled') {
         // archived
-      } else if (contract.status === 'pending_acceptance' || contract.status === 'draft') {
+      } else if (contract.status === 'pending_acceptance') {
         pending.push(contract);
       } else {
         active.push(contract);
@@ -81,52 +164,91 @@ export default function DashboardScreen() {
     return { active, pending };
   }, [contracts]);
 
-  const renderContractItem = (contract: any) => (
-    <TouchableOpacity
-      onPress={() => handleContractPress(contract)}
-      key={contract.id}
-      style={styles.contractItemContainer}
-    >
-      <Card style={styles.contractCard}>
-        <View style={styles.contractHeader}>
-          <View style={styles.contractInfo}>
-            <Text style={[styles.address, Typography.body]} numberOfLines={1}>
-              {contract.property_address}
-            </Text>
-            <Text style={[styles.period, Typography.caption]}>
-              {formatDate(contract.start_date)} - {formatDate(contract.end_date)}
-            </Text>
-          </View>
-          <Badge
-            label={getContractStatusLabel(contract.status)}
-            variant={getStatusBadgeVariant(contract.status)}
-            size="small"
-          />
-        </View>
+  const actionCount = useMemo(() => {
+    if (!user) return 0;
+    return contracts.filter((c) => {
+      const indicator = getActionIndicator(c, user.id);
+      return indicator?.type === 'action';
+    }).length;
+  }, [contracts, user]);
 
-        <Divider />
+  const renderContractItem = (contract: any) => {
+    const indicator = user ? getActionIndicator(contract, user.id) : null;
 
-        <View style={styles.contractDetails}>
-          <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, Typography.caption]}>
-              Rent Monthly
-            </Text>
-            <Text style={[styles.detailValue, Typography.body]}>
-              {formatCurrency(contract.rent_monthly_eur)}
-            </Text>
+    return (
+      <TouchableOpacity
+        onPress={() => handleContractPress(contract)}
+        key={contract.id}
+        style={styles.contractItemContainer}
+      >
+        <Card style={styles.contractCard}>
+          <View style={styles.contractHeader}>
+            <View style={styles.contractInfo}>
+              <Text style={[styles.address, Typography.body]} numberOfLines={1}>
+                {contract.property_address}
+              </Text>
+              <Text style={[styles.period, Typography.caption]}>
+                {formatDate(contract.start_date)} - {formatDate(contract.end_date)}
+              </Text>
+            </View>
+            <Badge
+              label={getContractStatusLabel(contract.status)}
+              variant={getStatusBadgeVariant(contract.status)}
+              size="small"
+            />
           </View>
-          <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, Typography.caption]}>
-              Deposit
-            </Text>
-            <Text style={[styles.detailValue, Typography.body]}>
-              {formatCurrency(contract.deposit_amount_eur)}
-            </Text>
+
+          <Divider />
+
+          <View style={styles.contractDetails}>
+            <View style={styles.detailRow}>
+              <Text style={[styles.detailLabel, Typography.caption]}>
+                Rent Monthly
+              </Text>
+              <Text style={[styles.detailValue, Typography.body]}>
+                {formatCurrency(contract.rent_monthly_eur)}
+              </Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={[styles.detailLabel, Typography.caption]}>
+                Deposit
+              </Text>
+              <Text style={[styles.detailValue, Typography.body]}>
+                {formatCurrency(contract.deposit_amount_eur)}
+              </Text>
+            </View>
           </View>
-        </View>
-      </Card>
-    </TouchableOpacity>
-  );
+
+          {indicator && (
+            <>
+              <Divider />
+              <View style={[
+                styles.indicatorRow,
+                indicator.type === 'action' ? styles.indicatorAction : styles.indicatorWaiting,
+              ]}>
+                <Text style={[
+                  styles.indicatorDot,
+                  { color: indicator.type === 'action' ? Colors.warning : Colors.textTertiary },
+                ]}>
+                  {indicator.type === 'action' ? '●' : '○'}
+                </Text>
+                <Text style={[
+                  styles.indicatorLabel,
+                  Typography.caption,
+                  { color: indicator.type === 'action' ? Colors.warning : Colors.textTertiary },
+                ]}>
+                  {indicator.label}
+                </Text>
+                {indicator.type === 'action' && (
+                  <Text style={[styles.indicatorArrow, { color: Colors.warning }]}>→</Text>
+                )}
+              </View>
+            </>
+          )}
+        </Card>
+      </TouchableOpacity>
+    );
+  };
 
   if (isLoading && contracts.length === 0) {
     return <LoadingSpinner />;
@@ -151,6 +273,17 @@ export default function DashboardScreen() {
           size="small"
         />
       </View>
+
+      {actionCount > 0 && (
+        <View style={styles.actionBanner}>
+          <Text style={[styles.actionBannerDot]}>●</Text>
+          <Text style={[styles.actionBannerText, Typography.bodySmall]}>
+            {actionCount === 1
+              ? '1 contract needs your attention'
+              : `${actionCount} contracts need your attention`}
+          </Text>
+        </View>
+      )}
 
       {!hasContracts ? (
         <EmptyState
@@ -202,6 +335,26 @@ const styles = StyleSheet.create({
   username: {
     color: Colors.textSecondary,
   },
+  actionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.warning,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  actionBannerDot: {
+    color: Colors.warning,
+    fontSize: 8,
+  },
+  actionBannerText: {
+    color: Colors.warning,
+    fontWeight: '600' as const,
+  },
   listContent: {
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.lg,
@@ -244,6 +397,29 @@ const styles = StyleSheet.create({
   },
   detailValue: {
     color: Colors.text,
+    fontWeight: '600' as const,
+  },
+  indicatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: Spacing.sm,
+    gap: Spacing.xs,
+  },
+  indicatorAction: {
+    // amber tint via text color only
+  },
+  indicatorWaiting: {
+    // muted via text color only
+  },
+  indicatorDot: {
+    fontSize: 8,
+  },
+  indicatorLabel: {
+    flex: 1,
+    fontWeight: '500' as const,
+  },
+  indicatorArrow: {
+    fontSize: 14,
     fontWeight: '600' as const,
   },
 });
