@@ -156,7 +156,7 @@ export default function CheckinScreen() {
 
   const allMandatoryDone = rooms
     .filter((r) => r.is_mandatory)
-    .every((r) => (uploadedCounts[r.id] ?? 0) >= 3);
+    .every((r) => (uploadedCounts[r.id] ?? 0) >= 1);
 
   const handleComplete = async () => {
     setUiState('completing');
@@ -292,7 +292,7 @@ export default function CheckinScreen() {
         />
         <Text style={[styles.title, Typography.heading2]}>Check-in</Text>
         <Text style={[styles.subtitle, Typography.bodySmall]}>
-          Photograph each mandatory room (min 3 photos each).
+          Photograph each mandatory room (min 1 photo each).
         </Text>
 
         {rooms
@@ -302,7 +302,7 @@ export default function CheckinScreen() {
             const uploaded = uploadedCounts[room.id] ?? 0;
             const captured = roomImages[room.id]?.length ?? 0;
             const count = uploaded > 0 ? uploaded : captured;
-            const done = !room.is_mandatory || uploaded >= 3;
+            const done = !room.is_mandatory || uploaded >= 1;
             return (
               <TouchableOpacity key={room.id} onPress={() => handleSelectRoom(room)}>
                 <Card style={[styles.roomCard, done && styles.roomCardDone]}>
@@ -312,7 +312,7 @@ export default function CheckinScreen() {
                         {room.custom_name || room.room_type.replace(/_/g, ' ')}
                       </Text>
                       <Text style={[styles.imageCount, Typography.caption]}>
-                        {count} photo{count !== 1 ? 's' : ''}{room.is_mandatory ? ` / 3 required` : ''}
+                        {count} photo{count !== 1 ? 's' : ''}{room.is_mandatory ? ` / 1 required` : ''}
                       </Text>
                     </View>
                     <View style={styles.roomBadges}>
@@ -335,7 +335,7 @@ export default function CheckinScreen() {
         />
         {!allMandatoryDone && (
           <Text style={[styles.hint, Typography.caption]}>
-            All mandatory rooms need at least 3 photos.
+            All mandatory rooms need at least 1 photo.
           </Text>
         )}
       </ScrollView>
