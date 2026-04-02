@@ -1,6 +1,25 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
+const envBoolean = (defaultValue = false) =>
+  z
+    .string()
+    .trim()
+    .optional()
+    .transform((value, ctx) => {
+      if (value === undefined || value.length === 0) return defaultValue;
+
+      const normalized = value.toLowerCase();
+      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Expected a boolean value (true/false, 1/0, yes/no, on/off)',
+      });
+      return z.NEVER;
+    });
+
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3000),
@@ -8,9 +27,9 @@ const EnvSchema = z.object({
   SUPABASE_URL: z.string().url('SUPABASE_URL must be a valid URL'),
   SUPABASE_SERVICE_KEY: z.string().min(1, 'SUPABASE_SERVICE_KEY is required'),
   SUPABASE_ANON_KEY: z.string().min(1, 'SUPABASE_ANON_KEY is required'),
-  MOCK_AUTH: z.coerce.boolean().default(false),
-  MOCK_LLM: z.coerce.boolean().default(false),
-  MOCK_SOLANA: z.coerce.boolean().default(false),
+  MOCK_AUTH: envBoolean(false),
+  MOCK_LLM: envBoolean(false),
+  MOCK_SOLANA: envBoolean(false),
   // Blockchain — mandatory
   SOLANA_PROGRAM_ID: z.string().min(1, 'SOLANA_PROGRAM_ID is required'),
   SOLANA_AUTHORITY_KEYPAIR: z.string().min(1, 'SOLANA_AUTHORITY_KEYPAIR is required'),

@@ -3,6 +3,15 @@ import { getSolanaService } from '../../services/solana/instance.js';
 import type { SolanaAgreement } from '../../services/solana/ISolanaService.js';
 import type { DbContract } from '../../shared/types/index.js';
 import { AppError } from '../../shared/utils/errors.js';
+import { env } from '../../config/env.js';
+
+function explorerQueryFromRpc(rpcUrl: string): string {
+  const rpc = rpcUrl.toLowerCase();
+  if (rpc.includes('devnet')) return 'cluster=devnet';
+  if (rpc.includes('testnet')) return 'cluster=testnet';
+  if (rpc.includes('mainnet') || rpc.includes('mainnet-beta')) return 'cluster=mainnet-beta';
+  return `cluster=custom&customUrl=${encodeURIComponent(rpcUrl)}`;
+}
 
 export interface BlockchainContractState {
   pda_address: string | null;
@@ -29,7 +38,7 @@ export async function getContractBlockchainState(
   const pdaAddress = contract.solana_pda ?? null;
   const initTx = contract.solana_tx_init ?? null;
   const explorerUrl = pdaAddress
-    ? `https://explorer.solana.com/address/${pdaAddress}?cluster=devnet`
+    ? `https://explorer.solana.com/address/${pdaAddress}?${explorerQueryFromRpc(env.SOLANA_RPC_URL)}`
     : null;
 
   let onChain: SolanaAgreement | null = null;

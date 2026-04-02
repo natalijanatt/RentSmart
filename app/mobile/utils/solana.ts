@@ -53,5 +53,21 @@ export function shortenAddress(address: string, chars = 4): string {
 }
 
 export function solanaExplorerUrl(address: string, type: 'address' | 'tx' = 'address'): string {
+  const rpcUrl = process.env.EXPO_PUBLIC_SOLANA_RPC_URL?.trim();
+
+  if (rpcUrl) {
+    const lower = rpcUrl.toLowerCase();
+    if (lower.includes('devnet')) {
+      return `https://explorer.solana.com/${type}/${address}?cluster=devnet`;
+    }
+    if (lower.includes('testnet')) {
+      return `https://explorer.solana.com/${type}/${address}?cluster=testnet`;
+    }
+    if (lower.includes('mainnet') || lower.includes('mainnet-beta')) {
+      return `https://explorer.solana.com/${type}/${address}?cluster=mainnet-beta`;
+    }
+    return `https://explorer.solana.com/${type}/${address}?cluster=custom&customUrl=${encodeURIComponent(rpcUrl)}`;
+  }
+
   return `https://explorer.solana.com/${type}/${address}?cluster=devnet`;
 }
