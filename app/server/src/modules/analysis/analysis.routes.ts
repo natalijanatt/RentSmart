@@ -26,8 +26,8 @@ analysisRouter.get(
   '/:id/analysis',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const results = await getAnalysisResults(req.params.id as string, req.user!.id);
-    res.json({ results });
+    const analysis = await getAnalysisResults(req.params.id as string, req.user!.id);
+    res.json({ analysis });
   }),
 );
 

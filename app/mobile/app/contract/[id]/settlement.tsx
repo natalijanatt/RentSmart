@@ -16,6 +16,7 @@ import {
   Button,
   Card,
   Badge,
+  ConfirmModal,
   Divider,
   LoadingSpinner,
   ProgressBar,
@@ -26,12 +27,14 @@ import {
   getSeverityLabel,
   getConditionLabel,
 } from '../../../utils/formatters';
+import type { Deduction } from '@rentsmart/contracts';
 
 export default function SettlementReviewScreen() {
   const { id } = useLocalSearchParams();
   const { user } = useAuthStore();
   const { settlement, setSettlement, isLoading, setIsLoading } = useContractsStore();
   const [approving, setApproving] = useState(false);
+  const [approveModalVisible, setApproveModalVisible] = useState(false);
   const [expandedDeduction, setExpandedDeduction] = useState<string | null>(null);
 
   const loadSettlement = useCallback(async () => {
@@ -54,33 +57,23 @@ export default function SettlementReviewScreen() {
     }, [loadSettlement])
   );
 
-  const handleApproveSettlement = async () => {
+  const handleApproveSettlement = () => {
     if (!settlement) return;
+    setApproveModalVisible(true);
+  };
 
-    Alert.alert(
-      'Approve Settlement',
-      'Are you sure? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Approve',
-          onPress: async () => {
-            setApproving(true);
-            try {
-              const response = await analysisService.approveSettlement(
-                settlement.contract_id
-              );
-              setSettlement(response.settlement);
-              Alert.alert('Success', 'Settlement approved successfully');
-            } catch (error) {
-              Alert.alert('Error', 'Failed to approve settlement');
-            } finally {
-              setApproving(false);
-            }
-          },
-        },
-      ]
-    );
+  const handleApproveConfirm = async () => {
+    if (!settlement) return;
+    setApproveModalVisible(false);
+    setApproving(true);
+    try {
+      const response = await analysisService.approveSettlement(settlement.contract_id);
+      setSettlement(response.settlement);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to approve settlement');
+    } finally {
+      setApproving(false);
+    }
   };
 
   if (isLoading) {
@@ -127,7 +120,7 @@ export default function SettlementReviewScreen() {
             </View>
           </View>
 
-          <Divider style={styles.divider} />
+          <Divider />
 
           <View style={styles.finalAmounts}>
             <View style={styles.finalAmountRow}>
@@ -157,7 +150,7 @@ export default function SettlementReviewScreen() {
             </Text>
             <Divider />
 
-            {settlement.deductions.map((deduction, index) => (
+            {settlement.deductions.map((deduction: Deduction, index: number) => (
               <TouchableOpacity
                 key={index}
                 onPress={() =>
@@ -190,6 +183,15 @@ export default function SettlementReviewScreen() {
           style={styles.approveButton}
         />
       </ScrollView>
+
+      <ConfirmModal
+        visible={approveModalVisible}
+        title="Approve Settlement"
+        message="This action cannot be undone. Both parties must approve for the settlement to complete."
+        confirmLabel="Approve"
+        onConfirm={handleApproveConfirm}
+        onCancel={() => setApproveModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -206,10 +208,9 @@ const styles = StyleSheet.create({
   summaryCard: {
     marginBottom: Spacing.lg,
     padding: Spacing.lg,
-    backgroundColor: Colors.primaryLight,
   },
   summaryTitle: {
-    color: Colors.surface,
+    color: Colors.text,
     marginBottom: Spacing.md,
   },
   amountRow: {
@@ -218,24 +219,23 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.lg,
   },
   amountLabel: {
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: Colors.textSecondary,
     marginBottom: Spacing.sm,
   },
   amountValue: {
-    color: Colors.surface,
+    color: Colors.text,
     fontWeight: '700' as const,
   },
   deductionBox: {
     alignItems: 'flex-end',
   },
   deductionLabel: {
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
   },
   deductionValue: {
     color: Colors.error,
-  },
-  divider: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    fontWeight: '700' as const,
   },
   finalAmounts: {
     paddingVertical: Spacing.md,
@@ -243,16 +243,19 @@ const styles = StyleSheet.create({
   finalAmountRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: Spacing.sm,
   },
   finalLabel: {
-    color: Colors.surface,
+    color: Colors.textSecondary,
   },
   tenantAmount: {
     color: Colors.success,
+    fontWeight: '600' as const,
   },
   landlordAmount: {
-    color: Colors.warning,
+    color: Colors.primary,
+    fontWeight: '600' as const,
   },
   card: {
     marginBottom: Spacing.lg,
@@ -260,6 +263,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: Colors.text,
+    marginBottom: Spacing.md,
   },
   deductionItem: {
     flexDirection: 'row',
@@ -275,6 +279,7 @@ const styles = StyleSheet.create({
   },
   deductionAmount: {
     color: Colors.error,
+    fontWeight: '600' as const,
   },
   approveButton: {
     marginBottom: Spacing.lg,

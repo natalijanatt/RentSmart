@@ -3,8 +3,10 @@ import type { ILlmService, RawLlmOutput, RoomAnalysisInput } from './ILlmService
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-function buildPrompt(roomType: string): string {
+function buildPrompt(roomType: string, checkinCount: number, checkoutCount: number): string {
   return `You are a property inspection AI. Compare the check-in photos (start of tenancy) with the check-out photos (end of tenancy) for this room: ${roomType}.
+
+The first ${checkinCount} image(s) are CHECK-IN photos. The next ${checkoutCount} image(s) are CHECK-OUT photos.
 
 Return ONLY valid JSON with no markdown fences or explanation:
 {
@@ -37,6 +39,36 @@ type TextContent = {
 
 type MessageContent = TextContent | ImageUrlContent;
 
+const MAX_IMAGES_PER_REQUEST = 10;
+
+function capImages(
+  checkinUrls: string[],
+  checkoutUrls: string[],
+): { checkin: string[]; checkout: string[] } {
+  const total = checkinUrls.length + checkoutUrls.length;
+  if (total <= MAX_IMAGES_PER_REQUEST) {
+    return { checkin: checkinUrls, checkout: checkoutUrls };
+  }
+
+  const checkinShare = Math.max(1, Math.round((checkinUrls.length / total) * MAX_IMAGES_PER_REQUEST));
+  const checkoutShare = Math.max(1, MAX_IMAGES_PER_REQUEST - checkinShare);
+  const finalCheckin = Math.min(checkinShare, MAX_IMAGES_PER_REQUEST - 1);
+  const finalCheckout = Math.min(checkoutShare, MAX_IMAGES_PER_REQUEST - finalCheckin);
+
+  return {
+    checkin: checkinUrls.slice(0, finalCheckin),
+    checkout: checkoutUrls.slice(0, finalCheckout),
+  };
+}
+
+async function toBase64DataUrl(imageUrl: string): Promise<string> {
+  const res = await fetch(imageUrl);
+  if (!res.ok) throw new Error(`Failed to fetch image: ${res.status} ${imageUrl}`);
+  const contentType = res.headers.get('content-type') ?? 'image/jpeg';
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return `data:${contentType};base64,${buffer.toString('base64')}`;
+}
+
 export class OpenRouterLlmService implements ILlmService {
   constructor(
     private readonly apiKey: string,
@@ -44,12 +76,16 @@ export class OpenRouterLlmService implements ILlmService {
   ) {}
 
   async analyzeRoom(input: RoomAnalysisInput): Promise<RawLlmOutput> {
+    const { checkin, checkout } = capImages(input.checkinImageUrls, input.checkoutImageUrls);
+    const allUrls = [...checkin, ...checkout];
+    const base64Urls = await Promise.all(allUrls.map(toBase64DataUrl));
+
     const content: MessageContent[] = [
-      { type: 'text', text: buildPrompt(input.roomType) },
-      ...input.checkinImageUrls.map(
-        (url): ImageUrlContent => ({ type: 'image_url', image_url: { url } }),
-      ),
-      ...input.checkoutImageUrls.map(
+      {
+        type: 'text',
+        text: buildPrompt(input.roomType, checkin.length, checkout.length),
+      },
+      ...base64Urls.map(
         (url): ImageUrlContent => ({ type: 'image_url', image_url: { url } }),
       ),
     ];
@@ -67,7 +103,11 @@ export class OpenRouterLlmService implements ILlmService {
     });
 
     if (!response.ok) {
-      throw AppError.internal(`OpenRouter request failed: ${response.status} ${response.statusText}`);
+      const errorBody = await response.text().catch(() => '(could not read body)');
+      console.error(`OpenRouter error response [${response.status}]:`, errorBody);
+      throw AppError.internal(
+        `OpenRouter request failed: ${response.status} ${response.statusText}`,
+      );
     }
 
     const json = (await response.json()) as {

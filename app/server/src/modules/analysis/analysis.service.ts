@@ -280,11 +280,14 @@ export async function getAnalysisResults(
   }
 
   const rows = await query<DbAnalysisResultWithRoom>(
-    `SELECT ar.*, r.room_type
-     FROM analysis_results ar
-     JOIN rooms r ON r.id = ar.room_id
-     WHERE ar.contract_id = $1
-     ORDER BY r.display_order ASC, ar.analyzed_at ASC`,
+    `SELECT * FROM (
+       SELECT DISTINCT ON (ar.room_id) ar.*, r.room_type, r.display_order
+       FROM analysis_results ar
+       JOIN rooms r ON r.id = ar.room_id
+       WHERE ar.contract_id = $1
+       ORDER BY ar.room_id, ar.analyzed_at DESC
+     ) sub
+     ORDER BY sub.display_order ASC`,
     [contractId],
   );
 

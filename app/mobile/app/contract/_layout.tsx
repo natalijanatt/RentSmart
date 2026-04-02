@@ -13,6 +13,8 @@ export default function ContractLayout() {
       <Stack.Screen name="[id]/index" />
       <Stack.Screen name="[id]/checkin" />
       <Stack.Screen name="[id]/checkout" />
+      <Stack.Screen name="[id]/review-images" />
+      <Stack.Screen name="[id]/analysis" />
       <Stack.Screen name="[id]/settlement" />
       <Stack.Screen name="[id]/audit" />
     </Stack>
