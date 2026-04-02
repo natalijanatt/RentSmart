@@ -11,6 +11,7 @@ import { inspectionsRouter } from './modules/inspections/inspections.routes.js';
 import { analysisRouter } from './modules/analysis/analysis.routes.js';
 import { runAnalysis } from './modules/analysis/analysis.service.js';
 import { auditRouter } from './modules/audit/audit.routes.js';
+import { blockchainRouter } from './modules/blockchain/blockchain.routes.js';
 import { swaggerSpec } from './swagger.js';
 
 export const app = express();
@@ -67,6 +68,7 @@ app.use('/api/v1/contracts', contractsRouter);
 app.use('/api/v1/contracts', inspectionsRouter);
 app.use('/api/v1/contracts', analysisRouter);
 app.use('/api/v1/contracts', auditRouter);
+app.use('/api/v1/contracts', blockchainRouter);
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

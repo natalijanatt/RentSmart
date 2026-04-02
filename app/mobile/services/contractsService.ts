@@ -1,6 +1,7 @@
 import {
   CreateContractBody,
   ContractResponse,
+  AcceptContractResponse,
   ContractsResponse,
   InspectionImagesResponse,
 } from '@rentsmart/contracts';
@@ -22,8 +23,8 @@ class ContractsService {
     return response.data;
   }
 
-  async acceptContract(contractId: string, inviteCode: string): Promise<ContractResponse> {
-    const response = await api.post<ContractResponse>(`/contracts/${contractId}/accept`, { invite_code: inviteCode });
+  async acceptContract(contractId: string, inviteCode: string): Promise<AcceptContractResponse> {
+    const response = await api.post<AcceptContractResponse>(`/contracts/${contractId}/accept`, { invite_code: inviteCode });
     return response.data;
   }
 

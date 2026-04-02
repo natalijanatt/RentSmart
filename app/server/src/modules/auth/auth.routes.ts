@@ -12,8 +12,8 @@ authRouter.post(
   '/verify',
   validate(verifyAuthBodySchema),
   asyncHandler(async (req, res) => {
-    const { firebase_token, display_name, device_id } = req.body;
-    const user = await verifyAndUpsert(firebase_token, display_name, device_id);
+    const { firebase_token, display_name, device_id, solana_pubkey } = req.body;
+    const user = await verifyAndUpsert(firebase_token, display_name, device_id, solana_pubkey);
     res.json({ user, auth_source: 'firebase' });
   }),
 );

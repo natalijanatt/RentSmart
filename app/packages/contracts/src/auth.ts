@@ -12,6 +12,7 @@ export const verifyAuthBodySchema = z.object({
   firebase_token: z.string().min(1),
   display_name: z.string().min(1).optional(),
   device_id: z.string().min(1),
+  solana_pubkey: z.string().optional(),
 });
 
 export const verifyAuthResponseSchema = z.object({

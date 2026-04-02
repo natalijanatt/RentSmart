@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "migrate": "tsx src/shared/db/migrate.ts",
     "build": "npm run build --workspace @rentsmart/blockchain && tsc",
     "start": "node dist/index.js"
   },

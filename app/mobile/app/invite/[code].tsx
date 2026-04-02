@@ -14,6 +14,7 @@ import { contractsService } from '../../services';
 import { Button, Card, Badge, Divider, LoadingSpinner } from '../../components';
 import { Colors, Spacing, Typography } from '../../constants/theme';
 import { formatCurrency, formatDate, getContractStatusLabel } from '../../utils/formatters';
+import { shortenAddress } from '../../utils/solana';
 
 export default function InviteScreen() {
   const { code } = useLocalSearchParams<{ code: string }>();
@@ -21,6 +22,7 @@ export default function InviteScreen() {
   const [contract, setContract] = useState<Contract | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(true);
   const [accepting, setAccepting] = useState(false);
+  const [depositTx, setDepositTx] = useState<string | null>(null);
 
   useEffect(() => {
     if (!code) return;
@@ -38,12 +40,16 @@ export default function InviteScreen() {
     try {
       const res = await contractsService.acceptContract(contract.id, code as string);
       addContract(res.contract);
-      router.replace(`/contract/${res.contract.id}`);
+      setDepositTx(res.solana_lock_deposit_tx);
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to accept contract');
-    } finally {
       setAccepting(false);
     }
+  };
+
+  const handleContinueAfterAccept = () => {
+    if (!contract) return;
+    router.replace(`/contract/${contract.id}`);
   };
 
   const handleDecline = () => {
@@ -55,6 +61,37 @@ export default function InviteScreen() {
   }
 
   if (!contract) return null;
+
+  if (depositTx) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <Text style={[styles.heading, Typography.heading2]}>Contract Accepted</Text>
+          <Text style={[styles.subheading, Typography.body]}>
+            Your deposit lock transaction has been prepared on Solana Devnet.
+          </Text>
+
+          <Card style={styles.card}>
+            <Text style={[styles.cardTitle, Typography.heading4]}>Deposit Lock Transaction</Text>
+            <Divider />
+            <Text style={[styles.label, Typography.caption]}>Transaction payload</Text>
+            <Text style={[styles.txValue, Typography.caption]}>
+              {shortenAddress(depositTx, 8)}
+            </Text>
+            <Text style={[styles.txNote, Typography.caption]}>
+              In a production deployment this transaction would be signed by your Solana wallet to lock the deposit on-chain.
+            </Text>
+          </Card>
+
+          <Button
+            label="Continue to Contract"
+            onPress={handleContinueAfterAccept}
+            fullWidth
+          />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -191,5 +228,15 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     marginBottom: Spacing.md,
+  },
+  txValue: {
+    color: Colors.primary,
+    fontFamily: 'monospace',
+    marginVertical: Spacing.sm,
+  },
+  txNote: {
+    color: Colors.textSecondary,
+    marginTop: Spacing.sm,
+    fontStyle: 'italic',
   },
 });
