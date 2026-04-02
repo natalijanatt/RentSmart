@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaReleaseRentResult, SolanaSettlementResult, SolanaTopUpRentTxResult } from './ISolanaService';
+import type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaReleaseRentResult, SolanaSettlementResult, SolanaTopUpRentTxResult } from './ISolanaService.js';
 
 /**
  * MockSolanaService — used when SOLANA_PROGRAM_ID is not set.
@@ -108,16 +108,17 @@ export class MockSolanaService implements ISolanaService {
   async getAgreement(contractId: string): Promise<SolanaAgreement | null> {
     console.log(`[MockSolana] getAgreement: ${contractId}`);
     const { pda } = this.findPDA(contractId);
+    // Return a realistic mock state — CheckoutRecorded is the expected state for settlement execution
     return {
       contract_id: contractId,
       contract_hash: '0'.repeat(64),
-      deposit_lamports: 0,
+      deposit_lamports: 100_000_000, // 0.1 SOL placeholder — real value set during initializeContract
       prepaid_rent_lamports: 0,
       landlord: '11111111111111111111111111111111',
       authority: '11111111111111111111111111111111',
       platform_wallet: '11111111111111111111111111111111',
       tenant: '11111111111111111111111111111111',
-      state: 'Created',
+      state: 'CheckoutRecorded',
       checkin_hash: '0'.repeat(64),
       checkout_hash: '0'.repeat(64),
       settlement_hash: '0'.repeat(64),

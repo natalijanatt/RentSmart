@@ -10,6 +10,7 @@ import { useAuthStore } from '../../store/authStore';
 import { authService } from '../../services';
 import { Button, ErrorMessage, LoadingOverlay } from '../../components';
 import { Colors, Spacing, Typography } from '../../constants/theme';
+import { getSolanaPubkeyForSeed } from '../../utils/solana';
 
 const MOCK_USERS = [
   {
@@ -29,20 +30,24 @@ const MOCK_USERS = [
 export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { setUser, setFirebaseToken } = useAuthStore();
+  const { setUser, setFirebaseToken, setSolanaPubkey } = useAuthStore();
 
   const handleLogin = async (mockUser: typeof MOCK_USERS[number]) => {
     setLoading(true);
     setError(null);
     try {
+      const solanaPubkey = await getSolanaPubkeyForSeed(mockUser.device_id);
+
       const response = await authService.verifyAuth({
         firebase_token: mockUser.firebase_token,
         display_name: mockUser.display_name,
         device_id: mockUser.device_id,
+        solana_pubkey: solanaPubkey,
       });
 
       setFirebaseToken(mockUser.firebase_token);
       setUser(response.user);
+      setSolanaPubkey(solanaPubkey);
       router.replace('/(tabs)');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');

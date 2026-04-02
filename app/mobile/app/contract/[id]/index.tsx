@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   Alert,
   Share,
+  Linking,
 } from 'react-native';
 import { useLocalSearchParams, useFocusEffect, router } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
@@ -19,6 +20,7 @@ import {
   formatDate,
   getContractStatusLabel,
 } from '../../../utils/formatters';
+import { shortenAddress, solanaExplorerUrl } from '../../../utils/solana';
 
 export default function ContractDetailsScreen() {
   const { id } = useLocalSearchParams();
@@ -206,6 +208,34 @@ export default function ContractDetailsScreen() {
           </Card>
         )}
 
+        {/* Blockchain */}
+        {contract.solana_pda && (
+          <Card style={styles.card}>
+            <Text style={[styles.cardTitle, Typography.heading4]}>Blockchain</Text>
+            <Divider />
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, Typography.body]}>PDA</Text>
+              <Text
+                style={[styles.blockchainValue, Typography.caption]}
+                onPress={() => Linking.openURL(solanaExplorerUrl(contract.solana_pda!, 'address'))}
+              >
+                {shortenAddress(contract.solana_pda)}
+              </Text>
+            </View>
+            {contract.solana_tx_init && (
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, Typography.body]}>Init Tx</Text>
+                <Text
+                  style={[styles.blockchainValue, Typography.caption]}
+                  onPress={() => Linking.openURL(solanaExplorerUrl(contract.solana_tx_init!, 'tx'))}
+                >
+                  {shortenAddress(contract.solana_tx_init)}
+                </Text>
+              </View>
+            )}
+          </Card>
+        )}
+
         {/* Actions */}
         <View style={styles.actions}>
           {renderActions()}
@@ -269,6 +299,11 @@ const styles = StyleSheet.create({
   summaryValue: {
     color: Colors.primary,
     fontWeight: '600' as const,
+  },
+  blockchainValue: {
+    color: Colors.primary,
+    textDecorationLine: 'underline' as const,
+    fontFamily: 'monospace',
   },
   actions: {
     marginTop: Spacing.lg,

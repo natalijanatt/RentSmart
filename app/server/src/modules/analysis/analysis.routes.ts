@@ -47,6 +47,13 @@ analysisRouter.post(
   requireAuth,
   asyncHandler(async (req, res) => {
     const settlement = await approveSettlement(req.params.id as string, req.user!.id);
-    res.json({ settlement });
+    const isFullyApproved = settlement.finalized_at !== null;
+    const approvedByRole = settlement.landlord_approved_by === req.user!.id ? 'landlord' : 'tenant';
+    res.json({
+      settlement,
+      contract_status: isFullyApproved ? 'completed' : 'settlement',
+      approved_by_role: approvedByRole,
+      is_fully_approved: isFullyApproved,
+    });
   }),
 );

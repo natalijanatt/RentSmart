@@ -1,4 +1,6 @@
 import type { ISolanaService } from './ISolanaService.js';
+import { env } from '../../config/env.js';
+import { MockSolanaService } from './MockSolanaService.js';
 
 export type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaReleaseRentResult, SolanaSettlementResult, SolanaTopUpRentTxResult } from './ISolanaService.js';
 
@@ -14,6 +16,11 @@ export type { ISolanaService, SolanaAgreement, SolanaInitResult, SolanaReleaseRe
  *   PLATFORM_SOLANA_PUBKEY    — platform wallet that receives rent payment fees
  */
 export async function createSolanaService(): Promise<ISolanaService> {
+  if (env.MOCK_SOLANA) {
+    console.warn('[Solana] MOCK_SOLANA=true — using MockSolanaService');
+    return new MockSolanaService();
+  }
+
   const { SolanaService } = (await import('@rentsmart/blockchain')) as {
     SolanaService: new () => ISolanaService;
   };

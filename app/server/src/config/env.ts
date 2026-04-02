@@ -10,6 +10,7 @@ const EnvSchema = z.object({
   SUPABASE_ANON_KEY: z.string().min(1, 'SUPABASE_ANON_KEY is required'),
   MOCK_AUTH: z.coerce.boolean().default(false),
   MOCK_LLM: z.coerce.boolean().default(false),
+  MOCK_SOLANA: z.coerce.boolean().default(false),
   // Blockchain — mandatory
   SOLANA_PROGRAM_ID: z.string().min(1, 'SOLANA_PROGRAM_ID is required'),
   SOLANA_AUTHORITY_KEYPAIR: z.string().min(1, 'SOLANA_AUTHORITY_KEYPAIR is required'),

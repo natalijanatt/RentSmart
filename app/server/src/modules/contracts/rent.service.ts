@@ -214,10 +214,16 @@ export async function releaseMonthlyRentForAllActive(month: number, year: number
   const solana = getSolanaService();
 
   for (const contract of activeContracts) {
-    try {
-      let releasedTxSignature: string | null = null;
+    const MAX_RETRIES = 3;
+    let attempt = 0;
+    let succeeded = false;
 
-      await withTransaction(async (client) => {
+    while (attempt < MAX_RETRIES && !succeeded) {
+      attempt++;
+      try {
+        let releasedTxSignature: string | null = null;
+
+        await withTransaction(async (client) => {
         // Prevent cross-instance double-release attempts for the same contract/month/year.
         const lockResult = await client.query<{ acquired: boolean }>(
           `SELECT pg_try_advisory_xact_lock(hashtext($1), $2) AS acquired`,
@@ -293,12 +299,18 @@ export async function releaseMonthlyRentForAllActive(month: number, year: number
         );
       });
 
-      if (releasedTxSignature) {
-        console.log(`[RentRelease] Released rent for contract ${contract.id} period ${month}/${year}: tx=${releasedTxSignature}`);
+        if (releasedTxSignature) {
+          console.log(`[RentRelease] Released rent for contract ${contract.id} period ${month}/${year}: tx=${releasedTxSignature}`);
+        }
+        succeeded = true;
+      } catch (err) {
+        if (attempt < MAX_RETRIES) {
+          console.warn(`[RentRelease] Attempt ${attempt}/${MAX_RETRIES} failed for ${contract.id} period ${month}/${year}, retrying in ${attempt}s:`, err);
+          await new Promise((r) => setTimeout(r, attempt * 1000));
+        } else {
+          console.error(`[RentRelease] All ${MAX_RETRIES} attempts failed for ${contract.id} period ${month}/${year}:`, err);
+        }
       }
-    } catch (err) {
-      // Log and continue — one failed release should not block others
-      console.error(`[RentRelease] Failed for contract ${contract.id} period ${month}/${year}:`, err);
     }
   }
 }

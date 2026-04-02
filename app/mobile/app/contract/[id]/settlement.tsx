@@ -8,7 +8,7 @@ import {
   Alert,
   TouchableOpacity,
 } from 'react-native';
-import { useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect, router } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
 import { useContractsStore } from '../../../store/contractsStore';
 import { analysisService } from '../../../services';
@@ -69,6 +69,9 @@ export default function SettlementReviewScreen() {
     try {
       const response = await analysisService.approveSettlement(settlement.contract_id);
       setSettlement(response.settlement);
+      if (response.is_fully_approved) {
+        router.replace(`/contract/${settlement.contract_id}`);
+      }
     } catch (error) {
       Alert.alert('Error', 'Failed to approve settlement');
     } finally {
@@ -87,6 +90,10 @@ export default function SettlementReviewScreen() {
       </SafeAreaView>
     );
   }
+
+  const alreadyApproved =
+    settlement.landlord_approved_by === user?.id ||
+    settlement.tenant_approved_by === user?.id;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -174,11 +181,43 @@ export default function SettlementReviewScreen() {
           </Card>
         )}
 
+        {/* Approval State */}
+        <Card style={styles.card}>
+          <Text style={[styles.cardTitle, Typography.heading4]}>Approvals</Text>
+          <Divider />
+          <View style={styles.approvalRow}>
+            <Text style={[styles.approvalLabel, Typography.body]}>Landlord</Text>
+            <Text style={[settlement.landlord_approved_at ? styles.approvalDone : styles.approvalPending, Typography.caption]}>
+              {settlement.landlord_approved_at ? 'Approved' : 'Pending'}
+            </Text>
+          </View>
+          <View style={styles.approvalRow}>
+            <Text style={[styles.approvalLabel, Typography.body]}>Tenant</Text>
+            <Text style={[settlement.tenant_approved_at ? styles.approvalDone : styles.approvalPending, Typography.caption]}>
+              {settlement.tenant_approved_at ? 'Approved' : 'Pending'}
+            </Text>
+          </View>
+          {settlement.finalized_at && (
+            <View style={styles.approvalRow}>
+              <Text style={[styles.approvalLabel, Typography.body]}>Finalized on-chain</Text>
+              <Text style={[styles.approvalDone, Typography.caption]}>Yes</Text>
+            </View>
+          )}
+        </Card>
+
         {/* Action Button */}
+        {settlement.requires_manual_review && (
+          <Card style={styles.warningCard}>
+            <Text style={[styles.warningText, Typography.body]}>
+              Manual review required. Contact support if settlement amounts are disputed.
+            </Text>
+          </Card>
+        )}
         <Button
-          label="Approve Settlement"
+          label={alreadyApproved ? 'Waiting for other party' : 'Approve Settlement'}
           onPress={handleApproveSettlement}
           loading={approving}
+          disabled={alreadyApproved || !!settlement.finalized_at}
           fullWidth
           style={styles.approveButton}
         />
@@ -287,5 +326,31 @@ const styles = StyleSheet.create({
   error: {
     color: Colors.error,
     padding: Spacing.lg,
+  },
+  approvalRow: {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    paddingVertical: Spacing.sm,
+  },
+  approvalLabel: {
+    color: Colors.textSecondary,
+  },
+  approvalDone: {
+    color: Colors.success,
+    fontWeight: '600' as const,
+  },
+  approvalPending: {
+    color: Colors.textTertiary,
+  },
+  warningCard: {
+    marginBottom: Spacing.md,
+    padding: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.error,
+  },
+  warningText: {
+    color: Colors.error,
   },
 });

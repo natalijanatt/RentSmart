@@ -17,12 +17,24 @@ const MIGRATIONS: { name: string; file: string }[] = [
     file: resolve(__dirname, 'migrations/001_initial.sql'),
   },
   {
+    name: '002_rent_payments',
+    file: resolve(__dirname, 'migrations/002_rent_payments.sql'),
+  },
+  {
     name: '002_seed_test_data',
     file: resolve(__dirname, 'migrations/002_seed_test_data.sql'),
   },
   {
     name: '003_remove_pending_acceptance',
     file: resolve(__dirname, 'migrations/003_remove_pending_acceptance.sql'),
+  },
+  {
+    name: '004_restore_pending_acceptance',
+    file: resolve(__dirname, 'migrations/004_restore_pending_acceptance.sql'),
+  },
+  {
+    name: '005_backfill_mock_wallets',
+    file: resolve(__dirname, 'migrations/005_backfill_mock_wallets.sql'),
   },
 ];
 

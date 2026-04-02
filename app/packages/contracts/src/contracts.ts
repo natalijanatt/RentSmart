@@ -65,6 +65,11 @@ export const contractResponseSchema = z.object({
   contract: contractSchema,
 });
 
+export const acceptContractResponseSchema = z.object({
+  contract: contractSchema,
+  solana_lock_deposit_tx: z.string(),
+});
+
 export const contractsResponseSchema = z.object({
   contracts: z.array(contractSchema),
 });
@@ -74,4 +79,5 @@ export type Contract = z.infer<typeof contractSchema>;
 export type CreateContractRoomInput = z.infer<typeof createContractRoomInputSchema>;
 export type CreateContractBody = z.infer<typeof createContractBodySchema>;
 export type ContractResponse = z.infer<typeof contractResponseSchema>;
+export type AcceptContractResponse = z.infer<typeof acceptContractResponseSchema>;
 export type ContractsResponse = z.infer<typeof contractsResponseSchema>;

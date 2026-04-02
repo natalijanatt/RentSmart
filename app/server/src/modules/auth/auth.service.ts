@@ -12,6 +12,7 @@ interface MockUserDef {
   phone: string;
   display_name: string;
   device_id: string;
+  solana_pubkey: string;
 }
 
 const MOCK_USER_DEFS: Record<string, MockUserDef> = {
@@ -20,12 +21,14 @@ const MOCK_USER_DEFS: Record<string, MockUserDef> = {
     phone: '+381641234567',
     display_name: 'Marko Petrovic',
     device_id: 'mock-device-landlord',
+    solana_pubkey: '8A6W4J7pM3xk2zN9Qf1hR4tY5uL8cV2bD7eF3gH1jK9',
   },
   mock_tenant_ana: {
     firebase_uid: 'mock_tenant_ana',
     phone: '+381697654321',
     display_name: 'Ana Nikolic',
     device_id: 'mock-device-tenant',
+    solana_pubkey: 'GPBu1DDgpb2pxovzVFnHRcZGfcer6rCnU4NUQck2yVrV',
   },
 };
 
@@ -36,16 +39,18 @@ async function upsertUser(
   phone: string,
   displayName: string,
   deviceId: string,
+  solanaPubkey?: string,
 ): Promise<DbUser> {
   const row = await queryOne<DbUser>(
-    `INSERT INTO users (phone, display_name, firebase_uid, device_id)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO users (phone, display_name, firebase_uid, device_id, solana_pubkey)
+     VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (firebase_uid) DO UPDATE SET
-       display_name = COALESCE(EXCLUDED.display_name, users.display_name),
-       device_id    = COALESCE(EXCLUDED.device_id,    users.device_id),
-       updated_at   = NOW()
+       display_name  = COALESCE(EXCLUDED.display_name,  users.display_name),
+       device_id     = COALESCE(EXCLUDED.device_id,     users.device_id),
+       solana_pubkey = COALESCE(EXCLUDED.solana_pubkey, users.solana_pubkey),
+       updated_at    = NOW()
      RETURNING *`,
-    [phone, displayName, firebaseUid, deviceId],
+    [phone, displayName, firebaseUid, deviceId, solanaPubkey ?? null],
   );
 
   if (!row) throw AppError.internal('Upsert returned no row.');
@@ -58,6 +63,7 @@ function toUser(db: DbUser): User {
     phone: db.phone,
     display_name: db.display_name,
     device_id: db.device_id,
+    solana_pubkey: db.solana_pubkey,
   };
 }
 
@@ -73,6 +79,7 @@ export async function verifyAndUpsert(
   firebaseToken: string,
   displayName: string | undefined,
   deviceId: string,
+  solanaPubkey?: string,
 ): Promise<User> {
   if (env.MOCK_AUTH) {
     const def = MOCK_USER_DEFS[firebaseToken];
@@ -82,7 +89,13 @@ export async function verifyAndUpsert(
         `Use one of: ${Object.keys(MOCK_USER_DEFS).join(', ')}`,
       );
     }
-    const db = await upsertUser(def.firebase_uid, def.phone, displayName ?? def.display_name, deviceId);
+    const db = await upsertUser(
+      def.firebase_uid,
+      def.phone,
+      displayName ?? def.display_name,
+      deviceId,
+      solanaPubkey ?? def.solana_pubkey,
+    );
     return toUser(db);
   }
 
@@ -98,7 +111,7 @@ export async function verifyAndUpsert(
   if (!phone) throw AppError.unauthorized('Firebase token has no phone_number claim.');
 
   const resolvedName = displayName ?? decoded.name ?? phone;
-  const db = await upsertUser(decoded.uid, phone, resolvedName, deviceId);
+  const db = await upsertUser(decoded.uid, phone, resolvedName, deviceId, solanaPubkey);
   return toUser(db);
 }
 

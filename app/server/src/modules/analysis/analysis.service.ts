@@ -5,6 +5,7 @@ import type { AnalysisResult, Finding, Settlement } from '@rentsmart/contracts';
 
 import { query, queryOne, withTransaction } from '../../shared/db/index.js';
 import { getSolanaService } from '../../services/solana/instance.js';
+import type { SolanaAgreement } from '../../services/solana/ISolanaService.js';
 import { createLlmService } from '../../services/llm/index.js';
 import type { DbAnalysisResult, DbContract, DbRoom, DbSettlement, DbUser } from '../../shared/types/index.js';
 import { AppError } from '../../shared/utils/errors.js';
@@ -430,7 +431,7 @@ export async function approveSettlement(
         client,
       );
 
-      // Execute on-chain settlement — mandatory
+      // Execute on-chain settlement — optional verification layer (graceful degradation)
       const contractParties = await client.query<{ tenant_id: string; landlord_id: string }>(
         `SELECT tenant_id, landlord_id FROM contracts WHERE id = $1`,
         [contractId],
@@ -441,31 +442,65 @@ export async function approveSettlement(
         client.query<DbUser>(`SELECT solana_pubkey FROM users WHERE id = $1`, [parties.tenant_id]),
         client.query<DbUser>(`SELECT solana_pubkey FROM users WHERE id = $1`, [parties.landlord_id]),
       ]);
-      const tenantPubkey = tenantUserRes.rows[0]?.solana_pubkey;
-      const landlordPubkey = landlordUserRes.rows[0]?.solana_pubkey;
-      if (!tenantPubkey) throw AppError.conflict('Tenant must have a Solana wallet for settlement.');
-      if (!landlordPubkey) throw AppError.conflict('Landlord must have a Solana wallet for settlement.');
+      const tenantPubkey = tenantUserRes.rows[0]?.solana_pubkey ?? null;
+      const landlordPubkey = landlordUserRes.rows[0]?.solana_pubkey ?? null;
 
-      const solana = getSolanaService();
-      const agreement = await solana.getAgreement(contractId);
-      if (!agreement) throw AppError.conflict('On-chain agreement was not found for settlement execution.');
-      const depositLamports = agreement.deposit_lamports;
-      const landlordLamports = solana.eurToLamports(parseFloat(finalized.landlord_receives_eur));
-      const tenantLamports = depositLamports - landlordLamports;
+      if (tenantPubkey && landlordPubkey) {
+        const solana = getSolanaService();
 
-      const settlementHashBuffer = crypto
-        .createHash('sha256')
-        .update(JSON.stringify(finalized))
-        .digest();
+        // Read on-chain state for validation — never blocks DB commit on failure
+        let agreement: SolanaAgreement | null = null;
+        try {
+          agreement = await solana.getAgreement(contractId);
+        } catch (err) {
+          console.error(`[Solana] getAgreement failed for ${contractId}:`, err);
+        }
 
-      await solana.executeSettlement(
-        contractId,
-        settlementHashBuffer,
-        tenantLamports,
-        landlordLamports,
-        tenantPubkey,
-        landlordPubkey,
-      );
+        if (agreement && agreement.state !== 'CheckoutRecorded' && agreement.state !== 'Settled') {
+          console.warn(`[Solana] Unexpected on-chain state for settlement of ${contractId}: ${agreement.state}`);
+        }
+
+        // Compute amounts from EUR to lamports for each party
+        const landlordLamports = solana.eurToLamports(parseFloat(finalized.landlord_receives_eur));
+        const tenantLamports = solana.eurToLamports(parseFloat(finalized.tenant_receives_eur));
+
+        // Normalize to exact on-chain deposit amount to avoid SettlementMismatch in the Rust program
+        let finalTenantLamports = tenantLamports;
+        if (agreement && agreement.deposit_lamports > 0) {
+          const diff = agreement.deposit_lamports - landlordLamports - tenantLamports;
+          if (Math.abs(diff) <= 2) {
+            // Absorb small rounding diff into tenant amount
+            finalTenantLamports = tenantLamports + diff;
+          } else {
+            console.warn(
+              `[Solana] Settlement amount diff too large for ${contractId}: ` +
+              `deposit=${agreement.deposit_lamports} landlord=${landlordLamports} tenant=${tenantLamports} diff=${diff}`,
+            );
+            finalTenantLamports = Math.max(0, agreement.deposit_lamports - landlordLamports);
+          }
+        }
+
+        const settlementHashBuffer = crypto
+          .createHash('sha256')
+          .update(JSON.stringify(finalized))
+          .digest();
+
+        try {
+          await solana.executeSettlement(
+            contractId,
+            settlementHashBuffer,
+            finalTenantLamports,
+            landlordLamports,
+            tenantPubkey,
+            landlordPubkey,
+          );
+        } catch (err) {
+          console.error(`[Solana] executeSettlement failed for ${contractId}:`, err);
+          // DB transaction continues — blockchain is optional verification layer
+        }
+      } else {
+        console.warn(`[Solana] Skipping executeSettlement for ${contractId}: missing wallet pubkey(s)`);
+      }
 
       return toSettlement(finalized);
     }

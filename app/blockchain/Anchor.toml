@@ -14,7 +14,7 @@ rentsmart = "B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

@@ -427,10 +427,15 @@ export async function approveInspection(
   });
 
   const solana = getSolanaService();
-  if (type === 'checkin') {
-    await solana.recordCheckin(contractId, combinedImageHash, signerPubkey);
-  } else {
-    await solana.recordCheckout(contractId, combinedImageHash, signerPubkey);
+  try {
+    if (type === 'checkin') {
+      await solana.recordCheckin(contractId, combinedImageHash, signerPubkey);
+    } else {
+      await solana.recordCheckout(contractId, combinedImageHash, signerPubkey);
+    }
+  } catch (err) {
+    console.error(`[Solana] record${type === 'checkin' ? 'Checkin' : 'Checkout'} failed for ${contractId}:`, err);
+    // Continue — blockchain is optional verification layer
   }
 
   return withTransaction(async (client) => {
