@@ -16,6 +16,7 @@ import {
   Button,
   Card,
   Badge,
+  ConfirmModal,
   Divider,
   LoadingSpinner,
   ProgressBar,
@@ -32,6 +33,7 @@ export default function SettlementReviewScreen() {
   const { user } = useAuthStore();
   const { settlement, setSettlement, isLoading, setIsLoading } = useContractsStore();
   const [approving, setApproving] = useState(false);
+  const [approveModalVisible, setApproveModalVisible] = useState(false);
   const [expandedDeduction, setExpandedDeduction] = useState<string | null>(null);
 
   const loadSettlement = useCallback(async () => {
@@ -54,33 +56,23 @@ export default function SettlementReviewScreen() {
     }, [loadSettlement])
   );
 
-  const handleApproveSettlement = async () => {
+  const handleApproveSettlement = () => {
     if (!settlement) return;
+    setApproveModalVisible(true);
+  };
 
-    Alert.alert(
-      'Approve Settlement',
-      'Are you sure? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Approve',
-          onPress: async () => {
-            setApproving(true);
-            try {
-              const response = await analysisService.approveSettlement(
-                settlement.contract_id
-              );
-              setSettlement(response.settlement);
-              Alert.alert('Success', 'Settlement approved successfully');
-            } catch (error) {
-              Alert.alert('Error', 'Failed to approve settlement');
-            } finally {
-              setApproving(false);
-            }
-          },
-        },
-      ]
-    );
+  const handleApproveConfirm = async () => {
+    if (!settlement) return;
+    setApproveModalVisible(false);
+    setApproving(true);
+    try {
+      const response = await analysisService.approveSettlement(settlement.contract_id);
+      setSettlement(response.settlement);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to approve settlement');
+    } finally {
+      setApproving(false);
+    }
   };
 
   if (isLoading) {
@@ -190,6 +182,15 @@ export default function SettlementReviewScreen() {
           style={styles.approveButton}
         />
       </ScrollView>
+
+      <ConfirmModal
+        visible={approveModalVisible}
+        title="Approve Settlement"
+        message="This action cannot be undone. Both parties must approve for the settlement to complete."
+        confirmLabel="Approve"
+        onConfirm={handleApproveConfirm}
+        onCancel={() => setApproveModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }

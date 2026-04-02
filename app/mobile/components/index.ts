@@ -1,6 +1,7 @@
 // Common components
 export { Button } from './common/Button';
 export { Card } from './common/Card';
+export { ConfirmModal } from './common/ConfirmModal';
 
 // Form components
 export { InputField } from './form/InputField';
