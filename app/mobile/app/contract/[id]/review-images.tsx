@@ -14,7 +14,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
-import { InspectionImage } from '@rentsmart/contracts';
+import { InspectionImage, Room } from '@rentsmart/contracts';
 import { useContractsStore } from '../../../store/contractsStore';
 import { contractsService } from '../../../services';
 import { Button, Card, Divider, LoadingSpinner, ConfirmModal } from '../../../components';
@@ -122,8 +122,8 @@ export default function ReviewImagesScreen() {
 
         {rooms
           .slice()
-          .sort((a, b) => a.display_order - b.display_order)
-          .map((room) => {
+          .sort((a: Room, b: Room) => a.display_order - b.display_order)
+          .map((room: Room) => {
             const roomImgs = imagesByRoom[room.id] ?? [];
             if (roomImgs.length === 0) return null;
             return (
@@ -140,6 +140,8 @@ export default function ReviewImagesScreen() {
                   horizontal
                   keyExtractor={(item) => item.id}
                   scrollEnabled
+                  nestedScrollEnabled
+                  showsHorizontalScrollIndicator={false}
                   renderItem={({ item }) => (
                     <TouchableOpacity onPress={() => setLightboxUri(item.image_url)}>
                       <View style={styles.imageContainer}>
@@ -158,7 +160,7 @@ export default function ReviewImagesScreen() {
 
         {/* Images for rooms not in contract.rooms (fallback) */}
         {Object.entries(imagesByRoom)
-          .filter(([roomId]) => !rooms.find((r) => r.id === roomId))
+          .filter(([roomId]) => !rooms.find((r: Room) => r.id === roomId))
           .map(([roomId, roomImgs]) => (
             <Card key={roomId} style={styles.card}>
               <Text style={[styles.roomName, Typography.heading4]}>Room</Text>
