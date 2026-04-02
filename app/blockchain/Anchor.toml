@@ -5,10 +5,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-rentsmart = "B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX"
+rentsmart = "2VCapeze96obtJQ1Wc7tgufFJqua3Z15XRAS5tF7AHZX"
 
 [programs.devnet]
-rentsmart = "B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX"
+rentsmart = "2VCapeze96obtJQ1Wc7tgufFJqua3Z15XRAS5tF7AHZX"
 
 [registry]
 url = "https://api.apr.dev"

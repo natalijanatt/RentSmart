@@ -13,7 +13,7 @@ import { router } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
 import { useContractsStore } from '../../store/contractsStore';
 import { contractsService } from '../../services';
-import { Button, Card, Badge, LoadingSpinner, EmptyState, Divider } from '../../components';
+import { Card, Badge, LoadingSpinner, EmptyState, Divider } from '../../components';
 import { Colors, Spacing, Typography } from '../../constants/theme';
 import {
   formatCurrency,
@@ -134,10 +134,6 @@ export default function DashboardScreen() {
   const handleContractPress = (contract: any) => {
     setSelectedContract(contract);
     router.push(`/contract/${contract.id}`);
-  };
-
-  const handleNewContract = () => {
-    router.push('/contract/property');
   };
 
   const getStatusBadgeVariant = (status: string): 'primary' | 'success' | 'warning' | 'error' | 'info' => {
@@ -267,11 +263,6 @@ export default function DashboardScreen() {
             {user?.display_name || 'User'}
           </Text>
         </View>
-        <Button
-          label="Novi ugovor"
-          onPress={handleNewContract}
-          size="small"
-        />
       </View>
 
       {actionCount > 0 && (

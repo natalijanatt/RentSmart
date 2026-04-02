@@ -78,6 +78,13 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.footerSection}>
+          <Button
+            label="Create a real account"
+            onPress={() => router.push('/(auth)/register')}
+            variant="outline"
+            fullWidth
+            style={styles.registerButton}
+          />
           <Text style={[styles.footerText, Typography.caption]}>
             Mock auth — dev only
           </Text>
@@ -128,6 +135,9 @@ const styles = StyleSheet.create({
   footerSection: {
     paddingVertical: Spacing.xl,
     alignItems: 'center',
+  },
+  registerButton: {
+    marginBottom: Spacing.md,
   },
   footerText: {
     color: Colors.textTertiary,

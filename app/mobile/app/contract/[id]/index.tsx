@@ -116,7 +116,7 @@ export default function ContractDetailsScreen() {
 
     if (status === 'settlement' || status === 'completed') {
       buttons.push(
-        <Button key="analysis" label="AI Analiza" onPress={() => router.push(`/contract/${contract.id}/analysis`)} variant="outline" fullWidth style={styles.actionButton} />
+        <Button key="analysis" label="AI Analysis" onPress={() => router.push(`/contract/${contract.id}/analysis`)} variant="outline" fullWidth style={styles.actionButton} />
       );
       buttons.push(
         <Button key="settlement" label="View Settlement" onPress={() => router.push(`/contract/${contract.id}/settlement`)} fullWidth style={styles.actionButton} />
