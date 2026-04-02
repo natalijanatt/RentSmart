@@ -8,8 +8,8 @@ const EnvSchema = z.object({
   SUPABASE_URL: z.string().url('SUPABASE_URL must be a valid URL'),
   SUPABASE_SERVICE_KEY: z.string().min(1, 'SUPABASE_SERVICE_KEY is required'),
   SUPABASE_ANON_KEY: z.string().min(1, 'SUPABASE_ANON_KEY is required'),
-  MOCK_AUTH: z.coerce.boolean().default(false),
-  MOCK_LLM: z.coerce.boolean().default(false),
+  MOCK_AUTH: z.string().default('false').transform(v => v === 'true'),
+  MOCK_LLM: z.string().default('false').transform(v => v === 'true'),
   SOLANA_PROGRAM_ID: z.string().optional(),
   // Required only when MOCK_AUTH=false
   FIREBASE_PROJECT_ID: z.string().optional(),
@@ -17,7 +17,7 @@ const EnvSchema = z.object({
   FIREBASE_CLIENT_EMAIL: z.string().optional(),
   // Required only when MOCK_LLM=false
   OPENROUTER_API_KEY: z.string().optional(),
-  OPENROUTER_MODEL: z.string().default('meta-llama/llama-3.2-11b-vision-instruct:free'),
+  OPENROUTER_MODEL: z.string().default('nvidia/nemotron-nano-12b-v2-vl:free'),
 });
 
 const result = EnvSchema.safeParse(process.env);

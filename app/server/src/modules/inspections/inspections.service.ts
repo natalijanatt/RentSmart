@@ -343,7 +343,7 @@ export async function completeInspection(
     assertActor(actorId, c, cfg.completeActor, `complete ${type === 'checkin' ? 'check-in' : 'check-out'}`);
     validateTransition(c.status as Contract['status'], cfg.pendingApprovalStatus, cfg.completeActor);
 
-    // Validate all mandatory rooms have ≥3 images
+    // Validate all mandatory rooms have ≥1 image
     const mandatoryRooms = await client.query<DbRoom>(
       `SELECT * FROM rooms WHERE contract_id = $1 AND is_mandatory = true`,
       [contractId],
@@ -355,9 +355,9 @@ export async function completeInspection(
         [contractId, room.id, type],
       );
       const count = parseInt(imgCount.rows[0]?.count ?? '0', 10);
-      if (count < 3) {
+      if (count < 1) {
         throw AppError.badRequest(
-          `Mandatory room "${room.custom_name ?? room.room_type}" requires at least 3 images (has ${count}).`,
+          `Mandatory room "${room.custom_name ?? room.room_type}" requires at least 1 image (has ${count}).`,
         );
       }
     }
