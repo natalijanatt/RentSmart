@@ -18,11 +18,11 @@ The backend (server) is the authoritative system — blockchain is a proof layer
 
 ## Tech stack
 
-| Layer | Technology |
-|---|---|
-| Smart contract | Rust, Anchor v0.30 |
-| TypeScript client | `@coral-xyz/anchor`, `@solana/web3.js` |
-| Network | Solana Devnet (testing) / Mainnet (production) |
+| Layer             | Technology                                                  |
+| ----------------- | ----------------------------------------------------------- |
+| Smart contract    | Rust, Anchor v0.30                                          |
+| TypeScript client | `@coral-xyz/anchor`, `@solana/web3.js`                      |
+| Network           | Solana Localhost (testing) / Devnet or Mainnet (production) |
 
 ---
 
@@ -66,34 +66,38 @@ cd app/blockchain && npm install
 
 Copy `.env.example` to `.env` and fill in:
 
-| Variable | Description |
-|---|---|
-| `SOLANA_RPC_URL` | `https://api.devnet.solana.com` or `http://127.0.0.1:8899` |
-| `SOLANA_PROGRAM_ID` | Base58 program ID (obtained after `anchor deploy`) |
-| `SOLANA_AUTHORITY_KEYPAIR` | JSON byte array: `[1,2,3,...,64]` |
-| `EUR_SOL_RATE` | Optional: EUR/SOL rate (default `0.01` for devnet demos) |
+| Variable                   | Description                                         |
+| -------------------------- | --------------------------------------------------- |
+| `SOLANA_RPC_URL`           | `http://127.0.0.1:8899` (localhost)                 |
+| `SOLANA_PROGRAM_ID`        | Base58 program ID (obtained after `anchor deploy`)  |
+| `SOLANA_AUTHORITY_KEYPAIR` | JSON byte array: `[1,2,3,...,64]`                   |
+| `EUR_SOL_RATE`             | Optional: EUR/SOL rate (default `0.01` for testing) |
 
 Generate the authority keypair once:
 
 ```bash
 solana-keygen new --outfile ~/.config/solana/rentsmart-authority.json
-solana airdrop 2 --url devnet
 # Export as JSON array for SOLANA_AUTHORITY_KEYPAIR:
 cat ~/.config/solana/rentsmart-authority.json
 ```
+
+> Note: Localhost automatically mints SOL for all test wallets — no airdrop needed.
 
 ---
 
 ## Build & deploy
 
 ```bash
+# Start local validator (run in a separate terminal)
+solana-test-validator
+
 # Compile Rust program + generate IDL
 anchor build
 # Output: target/deploy/rentsmart.so  and  target/idl/rentsmart.json
 
-# Deploy to devnet
-anchor deploy --provider.cluster devnet
-# Copy the printed Program Id into Anchor.toml and .env
+# Deploy to localhost
+anchor deploy
+# Output: Program ID and deployment confirmation
 
 # Build TypeScript client
 npm run build
@@ -107,9 +111,6 @@ npm run build
 ```bash
 # Full suite (compiles, starts local validator, deploys, runs TS tests, stops validator)
 anchor test
-
-# Devnet
-anchor test --provider.cluster devnet
 ```
 
 ---
@@ -135,6 +136,7 @@ Each instruction enforces the exact preceding state — out-of-order calls are r
 **Who acts:** Landlord (via the RentSmart app)
 
 **What happens:**
+
 - Server computes `SHA-256` of the contract JSON
 - Server calls `solana.initializeContract(contractId, contractHash, depositLamports, landlordWallet)`
 - Anchor program creates a PDA at seeds `["rental", contractId[0..32]]`
@@ -155,6 +157,7 @@ Landlord wallet ──(authority signs)──► initialize() ──► PDA [Cre
 **Who acts:** Tenant (signs on their mobile device)
 
 **What happens:**
+
 - Server calls `solana.buildLockDepositTx(contractId, tenantWallet)` — builds an **unsigned** transaction
 - Server returns `serialized_tx` (base64) to the mobile app
 - Tenant signs and broadcasts the transaction from their wallet
@@ -177,6 +180,7 @@ Tenant wallet ──(tenant signs on device)──► lock_deposit() ──► P
 **Who acts:** Tenant (signs on their mobile device)
 
 **What happens:**
+
 - Tenant specifies how many months of rent to pre-fund
 - Server calls `solana.buildTopUpRentTx(contractId, tenantWallet, rentLamports, months)` — builds an **unsigned** transaction
 - Amount deposited = `rent × 1.005 × months` (includes tenant's 0.5% platform fee share)
@@ -200,6 +204,7 @@ Tenant wallet ──(tenant signs)──► top_up_rent(amount) ──► PDA.pr
 **Who acts:** Backend authority (server signs automatically)
 
 **What happens:**
+
 - Server computes `SHA-256` of all check-in inspection image hashes
 - Server calls `solana.recordCheckin(contractId, imageHash, landlordWallet)`
 - PDA stores the image hash immutably on-chain
@@ -221,6 +226,7 @@ Authority ──(authority signs)──► record_checkin(imageHash) ──► P
 **Who acts:** Backend authority (server signs automatically, no tenant action needed)
 
 **What happens:**
+
 - Server calls `solana.releaseMonthlyRent(contractId, rentLamports, landlordWallet, platformWallet)`
 - Program verifies `prepaid_rent_lamports >= rent × 1.005`
 - Transfers from PDA: landlord receives `rent × 0.995`, platform receives `rent × 0.01` (1% total)
@@ -247,6 +253,7 @@ Authority ──(monthly cron)──► release_monthly_rent(rent) ──► lan
 **Who acts:** Backend authority (server signs automatically)
 
 **What happens:**
+
 - Server computes `SHA-256` of all check-out inspection image hashes
 - Server calls `solana.recordCheckout(contractId, imageHash, tenantWallet)`
 - PDA stores check-out image hash immutably on-chain
@@ -268,6 +275,7 @@ Authority ──(authority signs)──► record_checkout(imageHash) ──► 
 **Who acts:** Backend authority (server signs automatically)
 
 **What happens:**
+
 - Server's rule engine computes how much of the deposit goes to tenant vs landlord
 - Constraint: `tenantAmount + landlordAmount == deposit_lamports` (enforced on-chain)
 - Server calls `solana.executeSettlement(contractId, settlementHash, tenantAmount, landlordAmount, tenantWallet, landlordWallet)`
@@ -348,7 +356,7 @@ The server uses a factory in `src/services/solana/index.ts` that auto-detects `S
 
 ```bash
 # In app/server/.env
-SOLANA_PROGRAM_ID=<your_program_id>
+# Loaded from app/blockchain/.env (source of truth)
 SOLANA_RPC_URL=https://api.devnet.solana.com
 SOLANA_AUTHORITY_KEYPAIR=[1,2,3,...,64]
 
@@ -386,14 +394,14 @@ PDA seeds: `["rental", contract_id[0..32]]`
 
 ## Error reference
 
-| Error | Message |
-|---|---|
-| `InvalidState` | Invalid state for this operation |
-| `SettlementMismatch` | Settlement amounts do not equal the locked deposit |
-| `Unauthorized` | Unauthorized signer for this instruction |
-| `Overflow` | Arithmetic overflow during fee calculation |
+| Error                     | Message                                               |
+| ------------------------- | ----------------------------------------------------- |
+| `InvalidState`            | Invalid state for this operation                      |
+| `SettlementMismatch`      | Settlement amounts do not equal the locked deposit    |
+| `Unauthorized`            | Unauthorized signer for this instruction              |
+| `Overflow`                | Arithmetic overflow during fee calculation            |
 | `InsufficientRentBalance` | Prepaid rent balance is insufficient for this release |
-| `InvalidAmount` | Amount must be greater than zero |
+| `InvalidAmount`           | Amount must be greater than zero                      |
 
 ---
 
@@ -404,4 +412,4 @@ PDA seeds: `["rental", contract_id[0..32]]`
 3. **Never hardcode the program ID.** Always from `SOLANA_PROGRAM_ID` env variable.
 4. **Do not sign `lock_deposit` with authority.** Server builds the tx, tenant signs it on their device.
 5. **State checks are mandatory.** Each instruction `require!`s the exact preceding state.
-6. **Devnet limits.** Free airdrop is 2 SOL. Settlement tests need real SOL in the PDA.
+6. **Localhost setup.** Run `solana-test-validator` in a separate terminal before building/testing. It auto-funds wallets and provides a clean ledger.

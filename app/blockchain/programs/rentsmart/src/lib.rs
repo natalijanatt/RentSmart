@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("B5iQ6NGSqYQgGX3LqPhoCu31NuLkm7GvKzFG1CRraNBX");
+include!(concat!(env!("OUT_DIR"), "/program_id.rs"));
 
 /// RentSmart rental deposit + rent escrow program.
 ///

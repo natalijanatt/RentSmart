@@ -362,7 +362,7 @@ await db.query('UPDATE contracts SET solana_tx_init = $1 WHERE id = $2', [solana
 
 ```
 SOLANA_RPC_URL              # https://api.devnet.solana.com (devnet) ili http://127.0.0.1:8899 (local)
-SOLANA_PROGRAM_ID           # Base58 program ID (dobija se nakon anchor deploy)
+SOLANA_PROGRAM_ID           # Base58 program ID (uzima se iz .env)
 SOLANA_AUTHORITY_KEYPAIR    # JSON array bajtova: [1,2,3,...,64]
 EUR_SOL_RATE                # Opciono: kurs EUR/SOL (default: 0.01 — konzervativno za devnet)
 ```
@@ -379,9 +379,9 @@ anchor build
 anchor deploy --provider.cluster devnet
 # Output: Program Id: <BASE58_ADDRESS>
 
-# 3. Kopiraj program ID u:
-#    - Anchor.toml → [programs.devnet] rentsmart = "<ID>"
+# 3. Upiši ili osvježi jedino:
 #    - .env → SOLANA_PROGRAM_ID=<ID>
+#    Anchor.toml i Rust program čitaju vrijednost iz .env.
 
 # 4. Provjeri deployment
 solana program show <PROGRAM_ID> --url devnet
@@ -491,7 +491,7 @@ npx tsx -e "
 
 1. **Ne stavljaj lične podatke on-chain.** Samo hash-evi (SHA-256), iznosi lamports-a, Solana wallet adrese.
 2. **Ne zaboravi `anchor build` prije `anchor test`.** Testovi koriste IDL — mora biti up to date.
-3. **Ne hardkoduj program ID.** Uvijek iz env varijable (`SOLANA_PROGRAM_ID`) ili `Anchor.toml`.
+3. **Ne hardkoduj program ID.** Uvijek iz env varijable (`SOLANA_PROGRAM_ID`) iz `.env`.
 4. **Ne potpisuj `lock_deposit` sa authority.** Tu transakciju gradi server ali potpisuje tenant na svom mobilnom uređaju.
 5. **Ne baršunaj lamports konverziju.** `eurToLamports()` koristi pravi kurs — provjeri `EUR_SOL_RATE` env varijablu. Na deventu za demo možeš hardkodovati, ali dokumentuj.
 6. **Ne preskači state checks.** Svaka instrukcija mora `require!` tačan state — bez toga se može desiti replay.
