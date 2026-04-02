@@ -5,7 +5,7 @@
     "server",
     "mobile",
     "blockchain",
-    "packages/*"
+    "packages/contracts"
   ],
   "scripts": {
     "build:contracts": "npm run build --workspace @rentsmart/contracts"
