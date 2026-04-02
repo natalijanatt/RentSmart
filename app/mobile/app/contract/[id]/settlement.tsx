@@ -27,6 +27,7 @@ import {
   getSeverityLabel,
   getConditionLabel,
 } from '../../../utils/formatters';
+import type { Deduction } from '@rentsmart/contracts';
 
 export default function SettlementReviewScreen() {
   const { id } = useLocalSearchParams();
@@ -119,7 +120,7 @@ export default function SettlementReviewScreen() {
             </View>
           </View>
 
-          <Divider style={styles.divider} />
+          <Divider />
 
           <View style={styles.finalAmounts}>
             <View style={styles.finalAmountRow}>
@@ -149,7 +150,7 @@ export default function SettlementReviewScreen() {
             </Text>
             <Divider />
 
-            {settlement.deductions.map((deduction, index) => (
+            {settlement.deductions.map((deduction: Deduction, index: number) => (
               <TouchableOpacity
                 key={index}
                 onPress={() =>
@@ -207,10 +208,9 @@ const styles = StyleSheet.create({
   summaryCard: {
     marginBottom: Spacing.lg,
     padding: Spacing.lg,
-    backgroundColor: Colors.primaryLight,
   },
   summaryTitle: {
-    color: Colors.surface,
+    color: Colors.text,
     marginBottom: Spacing.md,
   },
   amountRow: {
@@ -219,24 +219,23 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.lg,
   },
   amountLabel: {
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: Colors.textSecondary,
     marginBottom: Spacing.sm,
   },
   amountValue: {
-    color: Colors.surface,
+    color: Colors.text,
     fontWeight: '700' as const,
   },
   deductionBox: {
     alignItems: 'flex-end',
   },
   deductionLabel: {
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
   },
   deductionValue: {
     color: Colors.error,
-  },
-  divider: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    fontWeight: '700' as const,
   },
   finalAmounts: {
     paddingVertical: Spacing.md,
@@ -244,16 +243,19 @@ const styles = StyleSheet.create({
   finalAmountRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: Spacing.sm,
   },
   finalLabel: {
-    color: Colors.surface,
+    color: Colors.textSecondary,
   },
   tenantAmount: {
     color: Colors.success,
+    fontWeight: '600' as const,
   },
   landlordAmount: {
-    color: Colors.warning,
+    color: Colors.primary,
+    fontWeight: '600' as const,
   },
   card: {
     marginBottom: Spacing.lg,
@@ -261,6 +263,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: Colors.text,
+    marginBottom: Spacing.md,
   },
   deductionItem: {
     flexDirection: 'row',
@@ -276,6 +279,7 @@ const styles = StyleSheet.create({
   },
   deductionAmount: {
     color: Colors.error,
+    fontWeight: '600' as const,
   },
   approveButton: {
     marginBottom: Spacing.lg,
