@@ -246,7 +246,20 @@ X-Mock-User: {"id":"landlord-uuid","phone":"+381641111111","display_name":"Landl
           },
         },
         responses: {
-          '200': { description: 'Contract accepted', content: { 'application/json': { schema: { type: 'object', properties: { contract: { $ref: '#/components/schemas/Contract' } } } } } },
+          '200': {
+            description: 'Contract accepted. Returns contract + unsigned Solana lock_deposit transaction for tenant to sign on their device.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    contract: { $ref: '#/components/schemas/Contract' },
+                    solana_lock_deposit_tx: { type: 'string', description: 'Base64-encoded unsigned Solana transaction. Tenant must sign and broadcast this to lock the deposit on-chain.' },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -493,6 +506,168 @@ X-Mock-User: {"id":"landlord-uuid","phone":"+381641111111","display_name":"Landl
         summary: 'Get full audit trail for a contract',
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
         responses: { '200': { description: 'Audit trail' } },
+      },
+    },
+
+    // ── Rent Escrow ───────────────────────────────────────────────────────────
+    '/contracts/{id}/rent/topup': {
+      post: {
+        tags: ['Rent Escrow'],
+        summary: 'Build unsigned top-up transaction (tenant)',
+        description: 'Returns a base64-encoded unsigned Solana transaction for the tenant to sign and broadcast.\n\nThe tenant pre-funds the on-chain escrow PDA with enough SOL to cover `months` monthly releases.\n\n**Fee model (enforced on-chain):**\n- Tenant deposits: rent × 1.005 × months (includes tenant\'s 0.5% fee share)\n- Each month: landlord receives rent − 0.5%, platform receives 1% total\n- Releases happen automatically on the 1st of each month — **no tenant action required**\n\nAfter broadcasting, call `POST /contracts/{id}/rent/topup/confirm` with the `tx_signature`.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        security: [{ BearerAuth: [] }, { MockUser: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['months'],
+                properties: {
+                  months: { type: 'integer', minimum: 1, maximum: 12, description: 'Number of months to pre-fund', example: 3 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Unsigned transaction ready for tenant to sign',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    serialized_tx: { type: 'string', description: 'Base64-encoded unsigned Solana transaction' },
+                    rent_amount_eur: { type: 'number', example: 400 },
+                    amount_lamports: { type: 'integer', description: 'Total lamports to deposit (rent × 1.005 × months)', example: 12060000 },
+                    months_covered: { type: 'integer', example: 3 },
+                    fee_lamports: { type: 'integer', description: 'Tenant\'s 0.5% platform fee included per month × months', example: 60000 },
+                  },
+                },
+              },
+            },
+          },
+          '400': { description: 'Invalid months value' },
+          '403': { description: 'Only the tenant can top up the rent escrow' },
+          '404': { description: 'Contract not found' },
+          '409': { description: 'Tenant missing a Solana wallet or contract not in valid state' },
+        },
+      },
+    },
+
+    '/contracts/{id}/rent/topup/confirm': {
+      post: {
+        tags: ['Rent Escrow'],
+        summary: 'Confirm a broadcast top-up (tenant)',
+        description: 'Called after the tenant has signed and broadcast the top-up transaction from their device. Records the top-up in the database and logs a `RENT_TOPPED_UP` audit event.\n\nPrevents duplicates: same `tx_signature` will be rejected.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        security: [{ BearerAuth: [] }, { MockUser: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tx_signature', 'months_covered'],
+                properties: {
+                  tx_signature: { type: 'string', maxLength: 88, description: 'Solana transaction signature', example: '5j7s8KxP...' },
+                  months_covered: { type: 'integer', minimum: 1, maximum: 12, example: 3 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '201': {
+            description: 'Top-up recorded',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    top_up: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        contract_id: { type: 'string', format: 'uuid' },
+                        tenant_id: { type: 'string', format: 'uuid' },
+                        rent_amount_eur: { type: 'number' },
+                        amount_lamports: { type: 'integer' },
+                        months_covered: { type: 'integer' },
+                        fee_lamports: { type: 'integer' },
+                        tx_signature: { type: 'string' },
+                        created_at: { type: 'string', format: 'date-time' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '403': { description: 'Only the tenant can confirm a top-up' },
+          '409': { description: 'Duplicate tx_signature' },
+        },
+      },
+    },
+
+    '/contracts/{id}/rent': {
+      get: {
+        tags: ['Rent Escrow'],
+        summary: 'List rent escrow activity (top-ups and releases)',
+        description: 'Returns all tenant top-ups and server-initiated monthly releases for a contract. Accessible by both landlord and tenant.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        security: [{ BearerAuth: [] }, { MockUser: [] }],
+        responses: {
+          '200': {
+            description: 'Rent escrow activity',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    top_ups: {
+                      type: 'array',
+                      description: 'Tenant deposits into the escrow PDA',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string', format: 'uuid' },
+                          amount_lamports: { type: 'integer' },
+                          months_covered: { type: 'integer' },
+                          fee_lamports: { type: 'integer' },
+                          tx_signature: { type: 'string' },
+                          created_at: { type: 'string', format: 'date-time' },
+                        },
+                      },
+                    },
+                    releases: {
+                      type: 'array',
+                      description: 'Monthly releases from escrow to landlord (server-initiated)',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string', format: 'uuid' },
+                          rent_amount_eur: { type: 'number' },
+                          rent_lamports: { type: 'integer' },
+                          landlord_amount_lamports: { type: 'integer' },
+                          platform_fee_lamports: { type: 'integer' },
+                          tx_signature: { type: 'string' },
+                          period_month: { type: 'integer' },
+                          period_year: { type: 'integer' },
+                          released_at: { type: 'string', format: 'date-time' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '403': { description: 'Access denied' },
+          '404': { description: 'Contract not found' },
+        },
       },
     },
   },

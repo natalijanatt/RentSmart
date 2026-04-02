@@ -156,7 +156,7 @@ export default function CheckinScreen() {
 
   const allMandatoryDone = rooms
     .filter((r) => r.is_mandatory)
-    .every((r) => (uploadedCounts[r.id] ?? 0) >= 1);
+    .every((r) => (uploadedCounts[r.id] ?? 0) >= 3);
 
   const handleComplete = async () => {
     setUiState('completing');
@@ -242,21 +242,8 @@ export default function CheckinScreen() {
               data={captured}
               horizontal
               keyExtractor={(_, i) => String(i)}
-              renderItem={({ item, index }) => (
-                <View style={styles.thumbnailWrapper}>
-                  <Image source={{ uri: item.uri }} style={styles.thumbnail} />
-                  <TouchableOpacity
-                    style={styles.thumbnailRemove}
-                    onPress={() =>
-                      setRoomImages((prev) => ({
-                        ...prev,
-                        [selectedRoom.id]: prev[selectedRoom.id].filter((_, i) => i !== index),
-                      }))
-                    }
-                  >
-                    <Text style={styles.thumbnailRemoveText}>✕</Text>
-                  </TouchableOpacity>
-                </View>
+              renderItem={({ item }) => (
+                <Image source={{ uri: item.uri }} style={styles.thumbnail} />
               )}
               contentContainerStyle={styles.thumbnailList}
             />
@@ -292,7 +279,7 @@ export default function CheckinScreen() {
         />
         <Text style={[styles.title, Typography.heading2]}>Check-in</Text>
         <Text style={[styles.subtitle, Typography.bodySmall]}>
-          Photograph each mandatory room (min 1 photo each).
+          Photograph each mandatory room (min 3 photos each).
         </Text>
 
         {rooms
@@ -302,7 +289,7 @@ export default function CheckinScreen() {
             const uploaded = uploadedCounts[room.id] ?? 0;
             const captured = roomImages[room.id]?.length ?? 0;
             const count = uploaded > 0 ? uploaded : captured;
-            const done = !room.is_mandatory || uploaded >= 1;
+            const done = !room.is_mandatory || uploaded >= 3;
             return (
               <TouchableOpacity key={room.id} onPress={() => handleSelectRoom(room)}>
                 <Card style={[styles.roomCard, done && styles.roomCardDone]}>
@@ -312,7 +299,7 @@ export default function CheckinScreen() {
                         {room.custom_name || room.room_type.replace(/_/g, ' ')}
                       </Text>
                       <Text style={[styles.imageCount, Typography.caption]}>
-                        {count} photo{count !== 1 ? 's' : ''}{room.is_mandatory ? ` / 1 required` : ''}
+                        {count} photo{count !== 1 ? 's' : ''}{room.is_mandatory ? ` / 3 required` : ''}
                       </Text>
                     </View>
                     <View style={styles.roomBadges}>
@@ -335,7 +322,7 @@ export default function CheckinScreen() {
         />
         {!allMandatoryDone && (
           <Text style={[styles.hint, Typography.caption]}>
-            All mandatory rooms need at least 1 photo.
+            All mandatory rooms need at least 3 photos.
           </Text>
         )}
       </ScrollView>
@@ -376,20 +363,7 @@ const styles = StyleSheet.create({
   roomLabel: { color: '#fff', fontSize: 16, fontWeight: '600', flex: 1, textAlign: 'center', textTransform: 'capitalize' },
   thumbnailStrip: { position: 'absolute', bottom: 120, left: 0, right: 0 },
   thumbnailList: { paddingHorizontal: Spacing.md },
-  thumbnailWrapper: { position: 'relative', marginRight: Spacing.sm },
-  thumbnail: { width: 60, height: 60, borderRadius: 6, borderWidth: 2, borderColor: '#fff' },
-  thumbnailRemove: {
-    position: 'absolute',
-    top: -6,
-    right: -6,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: Colors.error,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  thumbnailRemoveText: { color: '#fff', fontSize: 10, fontWeight: '700' as const },
+  thumbnail: { width: 60, height: 60, borderRadius: 6, marginRight: Spacing.sm, borderWidth: 2, borderColor: '#fff' },
   cameraBottomBar: {
     position: 'absolute',
     bottom: 0,

@@ -1,10 +1,12 @@
+import crypto from 'crypto';
 import type { PoolClient } from 'pg';
 
 import type { AnalysisResult, Finding, Settlement } from '@rentsmart/contracts';
 
 import { query, queryOne, withTransaction } from '../../shared/db/index.js';
+import { getSolanaService } from '../../services/solana/instance.js';
 import { createLlmService } from '../../services/llm/index.js';
-import type { DbAnalysisResult, DbContract, DbRoom, DbSettlement } from '../../shared/types/index.js';
+import type { DbAnalysisResult, DbContract, DbRoom, DbSettlement, DbUser } from '../../shared/types/index.js';
 import { AppError } from '../../shared/utils/errors.js';
 import { logAuditEvent } from '../audit/audit.service.js';
 import { validateTransition } from '../contracts/state-machine.js';
@@ -428,12 +430,42 @@ export async function approveSettlement(
         client,
       );
 
-      // Solana settlement — non-critical path
-      try {
-        // Solana integration is a stub; add real call when blockchain module is implemented
-      } catch (err) {
-        console.error('Solana settlement failed (non-critical):', err);
-      }
+      // Execute on-chain settlement — mandatory
+      const contractParties = await client.query<{ tenant_id: string; landlord_id: string }>(
+        `SELECT tenant_id, landlord_id FROM contracts WHERE id = $1`,
+        [contractId],
+      );
+      const parties = contractParties.rows[0]!;
+
+      const [tenantUserRes, landlordUserRes] = await Promise.all([
+        client.query<DbUser>(`SELECT solana_pubkey FROM users WHERE id = $1`, [parties.tenant_id]),
+        client.query<DbUser>(`SELECT solana_pubkey FROM users WHERE id = $1`, [parties.landlord_id]),
+      ]);
+      const tenantPubkey = tenantUserRes.rows[0]?.solana_pubkey;
+      const landlordPubkey = landlordUserRes.rows[0]?.solana_pubkey;
+      if (!tenantPubkey) throw AppError.conflict('Tenant must have a Solana wallet for settlement.');
+      if (!landlordPubkey) throw AppError.conflict('Landlord must have a Solana wallet for settlement.');
+
+      const solana = getSolanaService();
+      const agreement = await solana.getAgreement(contractId);
+      if (!agreement) throw AppError.conflict('On-chain agreement was not found for settlement execution.');
+      const depositLamports = agreement.deposit_lamports;
+      const landlordLamports = solana.eurToLamports(parseFloat(finalized.landlord_receives_eur));
+      const tenantLamports = depositLamports - landlordLamports;
+
+      const settlementHashBuffer = crypto
+        .createHash('sha256')
+        .update(JSON.stringify(finalized))
+        .digest();
+
+      await solana.executeSettlement(
+        contractId,
+        settlementHashBuffer,
+        tenantLamports,
+        landlordLamports,
+        tenantPubkey,
+        landlordPubkey,
+      );
 
       return toSettlement(finalized);
     }

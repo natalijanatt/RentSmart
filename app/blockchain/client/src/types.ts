@@ -8,12 +8,16 @@ export interface RentalAgreementRaw {
   contractId: number[];        // [u8; 32]
   contractHash: number[];      // [u8; 32]
   depositLamports: bigint;
+  prepaidRentLamports: bigint;
   landlord: string;            // base58 public key (Anchor deserializes Pubkey → string)
+  authority: string;
+  platformWallet: string;
   tenant: string;
   state: AgreementStateRaw;
   checkinHash: number[];       // [u8; 32]
   checkoutHash: number[];      // [u8; 32]
   settlementHash: number[];    // [u8; 32]
+  createdAt: bigint;
   bump: number;
 }
 

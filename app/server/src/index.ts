@@ -2,6 +2,8 @@ import './config/env.js';
 import { env } from './config/env.js';
 import { pool } from './shared/db/index.js';
 import { app } from './app.js';
+import { initSolanaService } from './services/solana/instance.js';
+import { scheduleMonthlyRentRelease } from './jobs/releaseMonthlyRent.js';
 
 async function start(): Promise<void> {
   // Verify DB connectivity before accepting traffic
@@ -12,6 +14,17 @@ async function start(): Promise<void> {
     console.error('❌  DB connection failed:', err);
     process.exit(1);
   }
+
+  // Initialize blockchain service (mandatory — throws if misconfigured)
+  try {
+    await initSolanaService();
+    console.log('✅  Solana blockchain service ready');
+  } catch (err) {
+    console.error('❌  Solana initialization failed:', err);
+    process.exit(1);
+  }
+
+  scheduleMonthlyRentRelease();
 
   app.listen(env.PORT, () => {
     console.log(`🚀  Server listening on http://localhost:${env.PORT}`);

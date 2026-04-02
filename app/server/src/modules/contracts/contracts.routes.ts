@@ -12,6 +12,13 @@ import {
   listContracts,
 } from './contracts.service.js';
 import { acceptContractBodySchema, cancelContractBodySchema, createContractBodySchema } from './contracts.schema.js';
+import {
+  buildTopUpRentBodySchema,
+  buildTopUpRentTx,
+  confirmTopUpBodySchema,
+  confirmTopUp,
+  listRentActivity,
+} from './rent.service.js';
 
 export const contractsRouter = Router();
 
@@ -55,8 +62,8 @@ contractsRouter.post(
   '/:id/accept',
   validate(acceptContractBodySchema),
   asyncHandler(async (req, res) => {
-    const contract = await acceptContract(req.params.id as string, req.user!.id, req.body.invite_code);
-    res.json({ contract });
+    const result = await acceptContract(req.params.id as string, req.user!.id, req.body.invite_code);
+    res.json({ contract: result.contract, solana_lock_deposit_tx: result.solana_lock_deposit_tx });
   }),
 );
 
@@ -66,5 +73,33 @@ contractsRouter.post(
   asyncHandler(async (req, res) => {
     const contract = await cancelContract(req.params.id as string, req.user!.id, req.body.reason);
     res.json({ contract });
+  }),
+);
+
+// ── Rent escrow ───────────────────────────────────────────────────────────────
+
+contractsRouter.post(
+  '/:id/rent/topup',
+  validate(buildTopUpRentBodySchema),
+  asyncHandler(async (req, res) => {
+    const result = await buildTopUpRentTx(req.params.id as string, req.user!.id, req.body);
+    res.json(result);
+  }),
+);
+
+contractsRouter.post(
+  '/:id/rent/topup/confirm',
+  validate(confirmTopUpBodySchema),
+  asyncHandler(async (req, res) => {
+    const topUp = await confirmTopUp(req.params.id as string, req.user!.id, req.body);
+    res.status(201).json({ top_up: topUp });
+  }),
+);
+
+contractsRouter.get(
+  '/:id/rent',
+  asyncHandler(async (req, res) => {
+    const activity = await listRentActivity(req.params.id as string, req.user!.id);
+    res.json(activity);
   }),
 );

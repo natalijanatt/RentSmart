@@ -21,16 +21,33 @@ export interface SolanaSettlementResult {
 
 export interface SolanaAgreement {
   contract_id: string;
-  contract_hash: string;        // hex string
+  contract_hash: string;          // hex string
   deposit_lamports: number;
-  landlord: string;             // base58 pubkey
-  tenant: string;               // base58 pubkey
+  prepaid_rent_lamports: number;  // current pre-paid rent escrow balance
+  landlord: string;               // base58 pubkey
+  authority: string;              // backend authority pubkey allowed to run privileged ops
+  platform_wallet: string;        // platform fee wallet constrained on release instruction
+  tenant: string;                 // base58 pubkey
   state: 'Created' | 'DepositLocked' | 'CheckinRecorded' | 'CheckoutRecorded' | 'Settled';
-  checkin_hash: string;         // hex string
-  checkout_hash: string;        // hex string
-  settlement_hash: string;      // hex string
-  created_at: number;           // Unix timestamp of contract initialization
-  explorer_url: string;         // Solana Explorer URL for the PDA account
+  checkin_hash: string;           // hex string
+  checkout_hash: string;          // hex string
+  settlement_hash: string;        // hex string
+  created_at: number;             // Unix timestamp of contract initialization
+  explorer_url: string;           // Solana Explorer URL for the PDA account
+}
+
+export interface SolanaTopUpRentTxResult {
+  serialized_tx: string;   // base64-encoded unsigned transaction; tenant signs on their device
+  amount_lamports: number; // total lamports being deposited into the escrow PDA
+  months_covered: number;  // how many months this top-up covers
+  fee_lamports: number;    // tenant's 0.5% platform fee share included per month × months
+}
+
+export interface SolanaReleaseRentResult {
+  tx_signature: string;
+  landlord_amount: number; // rent_lamports * 0.995
+  platform_fee: number;    // rent_lamports * 0.01 (1% total)
+  explorer_url: string;
 }
 
 export interface ISolanaService {
@@ -78,9 +95,33 @@ export interface ISolanaService {
   ): Promise<{ tx_signature: string }>;
 
   /**
- * Called when the second settlement approval is recorded and the contract
- * transitions from settlement to completed.
- * Releases escrowed SOL to tenant and landlord per the rule engine settlement.
+   * Called on POST /contracts/:id/rent/topup.
+   * Builds an unsigned top_up_rent transaction for the tenant to sign on their device.
+   * Amount deposited = rent_lamports × 1.005 × months (includes tenant's 0.5% fee share).
+   */
+  buildTopUpRentTx(
+    contractId: string,
+    tenantPubkey: string,
+    rentLamports: number,
+    months: number,
+  ): Promise<SolanaTopUpRentTxResult>;
+
+  /**
+   * Called by the server's monthly cron job.
+   * Authority-signed — no tenant action required.
+   * Releases one month of pre-paid rent from PDA escrow to landlord and platform.
+   */
+  releaseMonthlyRent(
+    contractId: string,
+    rentLamports: number,
+    landlordPubkey: string,
+    platformPubkey: string,
+  ): Promise<SolanaReleaseRentResult>;
+
+  /**
+   * Called when the second settlement approval is recorded and the contract
+   * transitions from settlement to completed.
+   * Releases escrowed SOL to tenant and landlord per the rule engine settlement.
    */
   executeSettlement(
     contractId: string,
