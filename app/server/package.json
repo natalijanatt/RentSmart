@@ -15,7 +15,7 @@
   "description": "",
   "dependencies": {
     "@openrouter/sdk": "^0.10.2",
-    "@rentsmart/blockchain": "workspace:*",
+    "@rentsmart/blockchain": "file:../blockchain",
     "@rentsmart/contracts": "file:../packages/contracts",
     "@supabase/supabase-js": "^2.100.1",
     "bcrypt": "^6.0.0",
