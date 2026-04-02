@@ -10,6 +10,7 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  PanResponder,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { CameraView, Camera } from 'expo-camera';
@@ -216,8 +217,17 @@ export default function CheckoutScreen() {
     const refImages = checkinImages[selectedRoom.id] ?? [];
     const currentOverlay = refImages[overlayIndex] ?? null;
 
+    const swipePan = PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy),
+      onPanResponderRelease: (_, g) => {
+        if (refImages.length < 2 || !overlayVisible) return;
+        if (g.dx < -40) setOverlayIndex((i) => (i + 1) % refImages.length);
+        else if (g.dx > 40) setOverlayIndex((i) => (i - 1 + refImages.length) % refImages.length);
+      },
+    });
+
     return (
-      <View style={styles.cameraContainer}>
+      <View style={styles.cameraContainer} {...swipePan.panHandlers}>
         <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" flash={flashOn ? 'on' : 'off'} />
 
         {/* Ghost overlay — checkin reference image at low opacity */}
@@ -261,19 +271,16 @@ export default function CheckoutScreen() {
           </TouchableOpacity>
         </SafeAreaView>
 
-        {/* Overlay controls — toggle + cycle through reference images */}
+        {/* Overlay controls — toggle + swipe hint */}
         {refImages.length > 0 && (
           <View style={styles.overlayControls}>
             <TouchableOpacity onPress={() => setOverlayVisible((v) => !v)} style={styles.overlayBtn}>
               <Text style={styles.overlayBtnText}>{overlayVisible ? '👁 Hide ref' : '👁 Show ref'}</Text>
             </TouchableOpacity>
             {refImages.length > 1 && overlayVisible && (
-              <TouchableOpacity
-                onPress={() => setOverlayIndex((i) => (i + 1) % refImages.length)}
-                style={styles.overlayBtn}
-              >
-                <Text style={styles.overlayBtnText}>{overlayIndex + 1}/{refImages.length} →</Text>
-              </TouchableOpacity>
+              <View style={styles.overlayBtn}>
+                <Text style={styles.overlayBtnText}>← {overlayIndex + 1}/{refImages.length} →</Text>
+              </View>
             )}
           </View>
         )}
@@ -286,8 +293,21 @@ export default function CheckoutScreen() {
               data={captured}
               horizontal
               keyExtractor={(_, i) => String(i)}
-              renderItem={({ item }) => (
-                <Image source={{ uri: item.uri }} style={styles.thumbnail} />
+              renderItem={({ item, index }) => (
+                <View style={styles.thumbnailWrapper}>
+                  <Image source={{ uri: item.uri }} style={styles.thumbnail} />
+                  <TouchableOpacity
+                    style={styles.thumbnailRemove}
+                    onPress={() =>
+                      setRoomImages((prev) => ({
+                        ...prev,
+                        [selectedRoom.id]: prev[selectedRoom.id].filter((_, i) => i !== index),
+                      }))
+                    }
+                  >
+                    <Text style={styles.thumbnailRemoveText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
               )}
               contentContainerStyle={styles.thumbnailList}
             />
@@ -430,7 +450,20 @@ const styles = StyleSheet.create({
   overlayBtnText: { color: '#fff', fontSize: 12 },
   newStrip: { position: 'absolute', bottom: 120, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.4)', paddingVertical: Spacing.sm },
   newLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 11, paddingHorizontal: Spacing.md, marginBottom: Spacing.xs },
-  thumbnail: { width: 60, height: 60, borderRadius: 6, marginRight: Spacing.sm, borderWidth: 2, borderColor: '#fff' },
+  thumbnailWrapper: { position: 'relative', marginRight: Spacing.sm },
+  thumbnail: { width: 60, height: 60, borderRadius: 6, borderWidth: 2, borderColor: '#fff' },
+  thumbnailRemove: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumbnailRemoveText: { color: '#fff', fontSize: 10, fontWeight: '700' as const },
   thumbnailList: { paddingHorizontal: Spacing.md },
   cameraBottomBar: {
     position: 'absolute',
