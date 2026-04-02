@@ -242,8 +242,21 @@ export default function CheckinScreen() {
               data={captured}
               horizontal
               keyExtractor={(_, i) => String(i)}
-              renderItem={({ item }) => (
-                <Image source={{ uri: item.uri }} style={styles.thumbnail} />
+              renderItem={({ item, index }) => (
+                <View style={styles.thumbnailWrapper}>
+                  <Image source={{ uri: item.uri }} style={styles.thumbnail} />
+                  <TouchableOpacity
+                    style={styles.thumbnailRemove}
+                    onPress={() =>
+                      setRoomImages((prev) => ({
+                        ...prev,
+                        [selectedRoom.id]: prev[selectedRoom.id].filter((_, i) => i !== index),
+                      }))
+                    }
+                  >
+                    <Text style={styles.thumbnailRemoveText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
               )}
               contentContainerStyle={styles.thumbnailList}
             />
@@ -363,7 +376,20 @@ const styles = StyleSheet.create({
   roomLabel: { color: '#fff', fontSize: 16, fontWeight: '600', flex: 1, textAlign: 'center', textTransform: 'capitalize' },
   thumbnailStrip: { position: 'absolute', bottom: 120, left: 0, right: 0 },
   thumbnailList: { paddingHorizontal: Spacing.md },
-  thumbnail: { width: 60, height: 60, borderRadius: 6, marginRight: Spacing.sm, borderWidth: 2, borderColor: '#fff' },
+  thumbnailWrapper: { position: 'relative', marginRight: Spacing.sm },
+  thumbnail: { width: 60, height: 60, borderRadius: 6, borderWidth: 2, borderColor: '#fff' },
+  thumbnailRemove: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumbnailRemoveText: { color: '#fff', fontSize: 10, fontWeight: '700' as const },
   cameraBottomBar: {
     position: 'absolute',
     bottom: 0,
