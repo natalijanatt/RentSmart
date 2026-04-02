@@ -10,6 +10,7 @@ const IDL = require('../../../target/idl/rentsmart.json') as Record<string, unkn
 
 export class SolanaService implements ISolanaService {
   private readonly connection: Connection;
+  private readonly rpcUrl: string;
   private readonly authority: Keypair;
   private readonly platformWallet: PublicKey;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,6 +39,7 @@ export class SolanaService implements ISolanaService {
     }
 
     this.programId = new PublicKey(programId);
+  this.rpcUrl = rpcUrl;
     this.authority = Keypair.fromSecretKey(Uint8Array.from(keypairBytes));
     this.platformWallet = new PublicKey(platformPubkey);
     this.connection = new Connection(rpcUrl, 'confirmed');
@@ -45,6 +47,18 @@ export class SolanaService implements ISolanaService {
     const wallet = new Wallet(this.authority);
     const provider = new AnchorProvider(this.connection, wallet, { commitment: 'confirmed' });
     this.program = new Program(IDL, provider);
+  }
+
+  private explorerQuery(): string {
+    const rpc = this.rpcUrl.toLowerCase();
+    if (rpc.includes('devnet')) return 'cluster=devnet';
+    if (rpc.includes('testnet')) return 'cluster=testnet';
+    if (rpc.includes('mainnet') || rpc.includes('mainnet-beta')) return 'cluster=mainnet-beta';
+    return `cluster=custom&customUrl=${encodeURIComponent(this.rpcUrl)}`;
+  }
+
+  private explorerUrl(kind: 'tx' | 'address', value: string): string {
+    return `https://explorer.solana.com/${kind}/${value}?${this.explorerQuery()}`;
   }
 
   findPDA(contractId: string): { pda: string; bump: number } {
@@ -87,7 +101,7 @@ export class SolanaService implements ISolanaService {
     return {
       tx_signature: txSignature,
       pda_address: pda.toBase58(),
-      explorer_url: `https://explorer.solana.com/tx/${txSignature}?cluster=devnet`,
+      explorer_url: this.explorerUrl('tx', txSignature),
     };
   }
 
@@ -247,7 +261,7 @@ export class SolanaService implements ISolanaService {
       tx_signature: txSignature,
       landlord_amount: landlordAmount,
       platform_fee: platformFee,
-      explorer_url: `https://explorer.solana.com/tx/${txSignature}?cluster=devnet`,
+      explorer_url: this.explorerUrl('tx', txSignature),
     };
   }
 
@@ -285,7 +299,7 @@ export class SolanaService implements ISolanaService {
 
     return {
       tx_signature: txSignature,
-      explorer_url: `https://explorer.solana.com/tx/${txSignature}?cluster=devnet`,
+      explorer_url: this.explorerUrl('tx', txSignature),
     };
   }
 
@@ -314,7 +328,7 @@ export class SolanaService implements ISolanaService {
         checkout_hash: Buffer.from(account.checkoutHash as number[]).toString('hex'),
         settlement_hash: Buffer.from(account.settlementHash as number[]).toString('hex'),
         created_at: (account.createdAt as BN).toNumber(),
-        explorer_url: `https://explorer.solana.com/address/${pda.toBase58()}?cluster=devnet`,
+        explorer_url: this.explorerUrl('address', pda.toBase58()),
       };
     } catch {
       // Account not found (contract not yet initialized or wrong network)

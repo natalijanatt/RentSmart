@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "migrate": "tsx src/shared/db/migrate.ts",
+    "backfill:onchain": "tsx src/scripts/backfillOnChainContracts.ts",
     "build": "npm run build --workspace @rentsmart/blockchain && tsc",
     "start": "node dist/index.js"
   },
